@@ -4,7 +4,7 @@
 
 ## 准备
 
-1. 构建 `client-runtime`（`npm ci`、`npm run build`）和 `mods/mcbot-server-control`（`./gradlew.bat build`），把核心 jar 装进服务器的 `mods`。也可以用 `node scripts/package.mjs` 打绿色版（自带 Node，jar 在它的 `mods` 里，双击 `启动 mcbot.cmd` 开 WebUI，见[开发文档](dev.md#打包绿色版)）；给别人用的发布版还没出。支持的 Mod 和确切版本见 [compat.json](../compat.json)。想用示例适配就再装对应的附属模组和被适配的 Mod（见 `mods/mcbot-*/README.md`）。改服务器前先备份存档。
+1. 构建 `client-runtime`（`npm ci`、`npm run build`）和 `mods/mcbot-server-control`（`./gradlew.bat build`），把核心 jar 装进服务器的 `mods`。也可以用 `node scripts/package.mjs` 打安装包（自带 Node，装好后从开始菜单或桌面的「mcbot」开 WebUI；包里不带 jar，模组在 WebUI 插件页联网下载，见[开发文档](dev.md#打包安装包)）；给别人用的发布版还没出。支持的 Mod 和确切版本见 [compat.json](../compat.json)。想用示例适配就再装对应的附属模组和被适配的 Mod（见 `mods/mcbot-*/README.md`）。改服务器前先备份存档。
 2. 启动服务器，确认自己能进。服务器会生成 `config/mcbot-server-control/connection.json`，里面有控制令牌，只留在本机，不要发给别人。
 3. Agent 账号在本机登录好（Claude Code、Codex 或 DeepSeek Harness）。用哪个账号由自己选，程序不会自动切换或复制登录。
 4. 单人世界：把核心 jar 放进客户端实例的 `mods`，进世界后按 Esc 选「对局域网开放」再托管（不开局域网会拒绝接管，见[单人模式](singleplayer_design.md)）；连接文件用实例里的那份。

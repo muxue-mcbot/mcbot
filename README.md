@@ -39,7 +39,7 @@
 
 Agent：Claude Code、Codex、DeepSeek Harness（dsh，可直接用桌面版自带的；2026-10-06 隔离服真实模型实测通过）。
 
-还没有：发布版安装包（绿色版能打包，还没发布）、网站、自主行动、农夫乐事适配、原生 API、多版本。详见[交付计划](docs/delivery_plan.md)。
+还没有：发布版安装包（安装包能打，还没发布）、网站、自主行动、农夫乐事适配、原生 API、多版本。详见[交付计划](docs/delivery_plan.md)。
 
 日常从本机 WebUI 启动：运行 `node scripts/webui.mjs --open`，在「配置」页保存 Agent、账号、模型、思考强度、记忆目录、保护玩家、外观等设置，一键启动托管；「监控」页看 Bot 状态、游戏聊天、AI 回复和工具调用，也能叫停（急停）或停止托管；「插件」页按 `compat.json` 安装核心模组、装卸适配（核心不在这里卸载）、开关「给 AI 使用」；「记忆」页看和删角色的记忆（[说明](docs/dev.md#本地-webui)）。命令行入口是 `scripts/start-server-play.mjs`（只要 Node；`start-server-play.ps1` 转调它），WebUI 也是调用它。ServerBody 全部能力下有 45 个游戏工具，有人设时再加记忆工具（以 `client-runtime/tool-registry.json` 为准，按服务器声明的能力裁剪），不代表所有 Mod 或服务器都能用。
 
@@ -49,7 +49,7 @@ Agent：Claude Code、Codex、DeepSeek Harness（dsh，可直接用桌面版自�
 - `mods/mcbot-server-control/`：服务端身体：假玩家、控制租约、原生交互、Mod 适配
 - `mods/mcbot-iron-furnaces/`、`mods/mcbot-kaleidoscope-cookery/`、`mods/mcbot-sophisticated-backpacks/`、`mods/mcbot-yes-steve-model/`：示例附属模组
 - `scripts/companion.mjs`（入口）、`scripts/driver/`、`scripts/agents/`：Agent 会话和事件驱动（三层各管什么见[状态归属](docs/state_ownership.md)）；`scripts/start-server-play.mjs`：启动托管（只要 Node）
-- `compat.json`：支持的 MC、NeoForge、Agent 和 Mod 清单；`scripts/package.mjs`：打 Windows 绿色版（[说明](docs/dev.md#打包绿色版)）
+- `compat.json`：支持的 MC、NeoForge、Agent 和 Mod 清单；`scripts/package.mjs`：打 Windows 安装包（[说明](docs/dev.md#打包安装包)）
 - `mcp-server/`、`bot-scripts/`：旧 Mineflayer 实现，用来对照迁移，协议测试玩家也用它
 - `mods/mcbot-control/`、`mods/mcbot-server-spike/`：保留的实验（ClientBody、早期服务端原型），不是默认路线
 - `docs/`：计划和协议；`docs/archive/`：验收记录和历史材料
