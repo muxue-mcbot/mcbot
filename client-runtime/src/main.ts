@@ -32,6 +32,7 @@ import { memoryTools } from './memory-tools.js';
 import { TOOLS, toolInfo } from './tool-registry.js';
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { fileURLToPath } from 'node:url';
+import { APP_VERSION } from './app-version.js';
 
 async function main(): Promise<void> {
   const { values } = parseArgs({ options: {
@@ -216,7 +217,7 @@ async function serveMemoryOnly(values: Record<string, unknown>): Promise<void> {
   const runtimeDir = path.resolve((values['runtime-dir'] as string) ?? 'runtime');
   const memory = openMemory(values, runtimeDir);
   if (!memory) throw new Error('--memory-only 需要 --memory-dir、--memory-agent，并且记忆目录里有这个角色的 persona.md');
-  const server = new McpServer({ name: 'mcbot-memory', version: '0.1.0' });
+  const server = new McpServer({ name: 'mcbot-memory', version: APP_VERSION });
   for (const tool of memoryTools(memory, 'consolidate')) {
     toolInfo(tool.name);
     server.registerTool(tool.name, { description: tool.description, inputSchema: tool.schema }, async (args: unknown) => {

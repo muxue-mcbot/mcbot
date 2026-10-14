@@ -1,3 +1,4 @@
+import { APP_VERSION } from './app-version.js';
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { AsyncLocalStorage } from 'node:async_hooks';
 import { z, type ZodRawShape } from 'zod';
@@ -32,7 +33,7 @@ const resourceSelector = z.string().regex(/^#?[a-z0-9_.-]+:[a-z0-9_/.-]+$/).desc
 const timeoutMs = z.number().int().min(500).max(120000).optional();
 /** chatFloor: ServerBody claim chatCursor; chat at or before it predates this control and is withheld from the model. */
 export function createMcpServer(rawBody: Body, events: EventJournal, options: { chatFloor?: number; companion?: CompanionMode; gather?: GatherTasks; tasks?: ContainerTasks; survival?: SurvivalTasks; reflexes?: SurvivalReflexes; stopCurrent?: StopCurrent; places?: PlaceBook; machines?: MachineWatch; meetWatch?: MeetWatch; blueprints?: BlueprintShelf; playerStop?: PlayerStop; memory?: MemoryStore } = {}): McpServer {
-  const server = new McpServer({ name: 'mcbot-client-runtime', version: '0.1.0' });
+  const server = new McpServer({ name: 'mcbot-client-runtime', version: APP_VERSION });
   const serverObserved = rawBody.hello.backend === 'server';
   const tasks = options.tasks ?? new ContainerTasks(rawBody, Date.now, operation => events.deliverOperation(operation));
   const gather = options.gather ?? new GatherTasks(rawBody, events);
