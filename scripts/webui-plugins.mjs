@@ -1,9 +1,12 @@
 // WebUI 的「插件」：按 compat.json 把核心模组和各个适配当成插件，装进或卸出选中的游戏目录。
 // - 一个插件 = 我们的附属 jar（有的话）＋ 被适配的模组本体（确切版本）＋ 要写的配置（通用物品槽这类）。
-// - 状态按实际文件判断：读 mods 里每个 jar 的 META-INF/neoforge.mods.toml 拿 mod id 和版本；我们自己的 jar 和包里的逐字节比。
+// - 状态按实际文件判断：读 mods 里每个 jar 的 META-INF/neoforge.mods.toml 拿 mod id 和版本。我们自己的 jar 按版本比较
+//   （docs/update_design.md 第八节）：核心要装的版本 = 主程序的版本；适配插件要装总清单 index.json（runtime/update-index.json，
+//   webui-update.mjs 读的那份）里的最新版，前提是主程序满足它的 coreMin，没有清单就用 compat.json 里的版本。
 // - 先出计划（下载什么、放进什么、移走什么、改哪个配置），网页确认后才执行。移走的旧文件和改之前的配置都放进
-//   <游戏目录>/mcbot-backups/<时间>/，不删。第三方模组只从 compat.json 里写的 Modrinth 官方地址下载，大小对上才用，
-//   下好的留在 runtime/mod-downloads 下次直接用；我们自己的 jar 从包里复制（绿色版在 mods/，仓库里在构建目录）。
+//   <游戏目录>/mcbot-backups/<时间>/，不删。第三方模组只从 compat.json（或清单）里写的 Modrinth 官方地址下载，大小对上才用；
+//   我们自己的 jar 按来源顺序从更新服务器或 GitHub 下载（地址规则见 webui-update.mjs 的 fileUrl），大小和 mods.toml 里的
+//   mod id、版本都对上才用。下好的留在 runtime/mod-downloads 下次直接用。仓库里有同名的本地构建时直接复制，方便开发。
 // - 游戏或服务器开着时不改（Windows 上加载中的 jar 移不动，改了也要重启才生效）。
 import fs from 'node:fs';
 import path from 'node:path';
@@ -13,11 +16,18 @@ import { fileURLToPath } from 'node:url';
 import { connectionFileOf, gameOnline, gameSupport, gameType } from './webui-games.mjs';
 import { gameRunState, javaProcesses, runMessage } from './game-processes.mjs';
 import { runtimeDir } from './paths.mjs';
+import { compareVersions, parseVersion, readAppVersion } from './version.mjs';
+import { cachedIndex, downloadFile, downloadSources, fileUrl, isGithubSource } from './webui-update.mjs';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
-const ITEM_HANDLERS = path.join('config', 'mcbot-server-control', 'item-handlers.json');
+const CONFIG_DIR = path.join('config', 'mcbot-server-control');
+const ITEM_HANDLERS = path.join(CONFIG_DIR, 'item-handlers.json');
 const MODRINTH_RE = /^https:\/\/cdn\.modrinth\.com\//;
 const JAR_RE = /^[^\\/:*?"<>|\u0000-\u001f]+\.jar$/i;
+const PLUGIN_FILE_RE = /^plugins\/[A-Za-z0-9._+-]+\.jar$/, TAG_RE = /^[A-Za-z0-9._+-]+$/;
+// 10-14 定版本号方案之前，我们的 jar 一律写的 0.1.0（数字上比 0.0.x 大）：要装的版本低于 0.1.0 时把它当旧版。
+// 正式发 0.1.0 以后这条自动不起作用；那时还留着方案之前 0.1.0 的游戏会被当成已是最新，见 docs/update_design.md 第八节。
+const LEGACY_VERSION = '0.1.0';
 
 const readJson = (file) => { try { return JSON.parse(fs.readFileSync(file, 'utf8')); } catch { return null; } };
 const isFile = (p) => { try { return fs.statSync(p).isFile(); } catch { return false; } };
@@ -101,22 +111,64 @@ export function packageJar(root, entry) {
 /** 我们的 jar 的 mod id：项目名去掉连字符（mcbot-kaleidoscope-cookery → mcbot_kaleidoscope_cookery），核心就是 core.id。 */
 const ourModId = (entry) => entry.kind === 'core' ? entry.id : path.basename(entry.project || '').replace(/-/g, '_');
 
-export function loadCatalog(root = ROOT) {
+const isVersion = (v) => { try { parseVersion(v); return true; } catch { return false; } };
+/** jar 文件名里的版本：mcbot-iron-furnaces-0.0.3.jar → 0.0.3。 */
+export const jarVersion = (jar) => /-(\d+\.\d+\.\d+)\.jar$/i.exec(String(jar || ''))?.[1] || '';
+/** 已安装的版本和要装的比：-1 旧、0 相同、1 新。读不出版本的当旧版；方案之前的 0.1.0 见 LEGACY_VERSION。 */
+export function compareInstalled(have, want) {
+  if (!isVersion(have)) return -1;
+  if (have === LEGACY_VERSION && compareVersions(want, LEGACY_VERSION) < 0) return -1;
+  return compareVersions(have, want);
+}
+/** 清单里一个插件的发布信息；格式不对返回 null。 */
+function releasedPlugin(r) {
+  if (!r || typeof r !== 'object' || !isVersion(r.version) || !PLUGIN_FILE_RE.test(String(r.file)) || !TAG_RE.test(String(r.tag))
+    || !(Number.isSafeInteger(r.size) && r.size > 0) || (r.coreMin !== undefined && !isVersion(r.coreMin))) return null;
+  return { version: r.version, file: r.file, tag: r.tag, size: r.size, coreMin: r.coreMin || '', date: typeof r.date === 'string' ? r.date : '',
+    notes: Array.isArray(r.notes) ? r.notes.filter((s) => typeof s === 'string') : [] };
+}
+
+/**
+ * 插件目录：compat.json 给出有哪些插件、各要哪些模组本体；我们的 jar 要装哪个版本、从哪里下载按主程序版本和清单定。
+ * 核心：版本 = 主程序版本，地址按规则拼（core/<jar>、app-v<版本>），清单里正好是这个版本时带上大小。
+ * 适配插件：清单里有更新的版本、主程序满足 coreMin 时改装清单里的（连同它要的模组本体和配置）；不满足时记下 needApp。
+ */
+export function loadCatalog(root = ROOT, { runtime = runtimeDir(root), cache = cachedIndex(runtime) } = {}) {
   const compat = readJson(path.join(root, 'compat.json'));
   if (!compat?.core || !Array.isArray(compat.adapters)) throw new Error('compat.json 无法读取');
-  const byId = new Map(compat.adapters.map((a) => [a.id, a]));
+  let appVersion;
+  try { appVersion = readAppVersion(root); } catch { appVersion = jarVersion(compat.core.jar); }
+  const index = cache?.index || null;
   const mod = (r) => ({ modId: r.modId, version: r.version, side: r.side || 'both', license: r.license || '', project: r.modrinth?.project || '',
     file: r.modrinth?.file || '', size: r.modrinth?.size || 0, url: r.modrinth?.url || '' });
-  const core = { id: compat.core.id, kind: 'core', name: compat.core.name, what: [compat.core.what], jar: compat.core.jar, project: compat.core.project, mods: [], needs: [] };
+  const core = { id: compat.core.id, kind: 'core', name: compat.core.name, what: [compat.core.what], jar: compat.core.jar, project: compat.core.project, mods: [], needs: [],
+    version: appVersion, remote: { file: `core/${compat.core.jar}`, tag: `app-v${appVersion}`, size: 0 } };
+  const ic = index?.app?.core;
+  if (ic && index.app.version === appVersion && path.posix.basename(ic.file) === core.jar) core.remote = { file: ic.file, tag: index.app.tag, size: ic.size };
   core.modId = ourModId(core); core.src = packageJar(root, core);
-  const plugins = compat.adapters.map((a) => {
+  const adapters = compat.adapters.map((a) => {
+    if (a.kind !== 'addon') return { a };
+    const local = jarVersion(a.jar), out = { a, version: local, remote: { file: `plugins/${a.jar}`, tag: `${a.id}-v${local}`, size: 0 } };
+    const r = releasedPlugin(index?.plugins?.[a.id]);
+    if (!r || !isVersion(local)) return out;
+    const cmp = compareVersions(r.version, local);
+    if (cmp < 0) return out;
+    if (r.coreMin && compareVersions(appVersion, r.coreMin) < 0) return cmp > 0 ? { ...out, needApp: { version: r.version, coreMin: r.coreMin } } : out;
+    // 清单里的条目带着和 compat.json 一样的字段（被适配模组的版本、Modrinth 地址、配置），版本更新时一起换
+    const raw = index.plugins[a.id];
+    const merged = cmp > 0 ? { ...a, ...Object.fromEntries(['name', 'nameEn', 'what', 'evidence', 'requires'].filter((k) => raw[k] !== undefined).map((k) => [k, raw[k]])), jar: path.posix.basename(r.file) } : a;
+    return { a: merged, version: r.version, remote: { file: r.file, tag: r.tag, size: r.size }, date: r.date, notes: r.notes };
+  });
+  const byId = new Map(adapters.map(({ a }) => [a.id, a]));
+  const plugins = adapters.map(({ a, ...rel }) => {
     const p = { id: a.id, kind: a.kind, name: a.name, nameEn: a.nameEn || '', what: a.what || [], evidence: a.evidence || '', jar: a.kind === 'addon' ? a.jar : '', project: a.project || '',
       mods: (a.requires || []).filter((r) => r.modId).map(mod), needs: (a.requires || []).filter((r) => r.ref && byId.has(r.ref)).map((r) => r.ref),
-      config: a.kind === 'config' ? { file: ITEM_HANDLERS, mods: { ...(a.config?.mods || {}) } } : null };
+      config: a.kind === 'config' ? { file: ITEM_HANDLERS, mods: { ...(a.config?.mods || {}) } } : null, ...rel };
     p.modId = p.jar ? ourModId(p) : ''; p.src = p.jar ? packageJar(root, p) : '';
     return p;
   });
-  return { minecraft: compat.platform?.minecraft || '', loader: compat.platform?.loader || '', platform: compat.platform || null, core, plugins };
+  return { minecraft: compat.platform?.minecraft || '', loader: compat.platform?.loader || '', platform: compat.platform || null, appVersion,
+    manifestAt: cache?.checkedAt || 0, core, plugins };
 }
 
 /** 一个插件要的所有模组本体：自己的，加上它引用的插件的（比如「森罗厨房的机器」要森罗厨房本体）。 */
@@ -137,15 +189,24 @@ function modState(scan, m) {
   if (hits.length) return { state: 'wrong', file: hits[0].file, version: hits[0].mods.find((x) => x.modId === m.modId).version, files: hits.map((j) => j.file) };
   return { state: 'missing' };
 }
+/**
+ * 我们的 jar 的状态：missing 未安装；old 比要装的旧；newer 比要装的新；different 装了不止一个，
+ * 或版本相同但和仓库里的本地构建字节不同（开发时重新构建过）；ok。version 是游戏里装的版本，want 是要装的。
+ */
 function jarState(gameDir, scan, entry) {
   const hits = scan.filter((j) => j.mods.some((x) => x.modId === entry.modId) || j.file.toLowerCase() === entry.jar.toLowerCase());
-  if (!hits.length) return { state: 'missing' };
+  if (!hits.length) return { state: 'missing', want: entry.version };
   const files = hits.map((j) => j.file);
-  if (!entry.src) return { state: 'ok', file: files[0], files, unchecked: true };
-  // 比实际字节：版本号一样的旧构建也看得出来
-  let same = false;
-  try { same = hits.length === 1 && fs.readFileSync(path.join(gameDir, 'mods', hits[0].file)).equals(fs.readFileSync(entry.src)); } catch { /* 读不了算不同 */ }
-  return { state: same ? 'ok' : 'different', file: files[0], files };
+  const base = { file: files[0], files, version: hits[0].mods.find((x) => x.modId === entry.modId)?.version || '', want: entry.version };
+  if (hits.length > 1) return { state: 'different', ...base };
+  const cmp = compareInstalled(base.version, entry.version);
+  if (cmp) return { state: cmp < 0 ? 'old' : 'newer', ...base };
+  if (entry.src) {
+    let same = false;
+    try { same = fs.readFileSync(path.join(gameDir, 'mods', hits[0].file)).equals(fs.readFileSync(entry.src)); } catch { /* 读不了算不同 */ }
+    if (!same) return { state: 'different', ...base };
+  }
+  return { state: 'ok', ...base };
 }
 function readItemHandlers(gameDir) {
   const file = path.join(gameDir, ITEM_HANDLERS);
@@ -163,25 +224,32 @@ function configState(gameDir, p) {
   return { state: 'missing' };
 }
 
-/** 每个插件的组成部分和状态。overall：ok 都对；none 关键部分没装；fix 装了但有缺的或版本不对。 */
+/**
+ * 每个插件的组成部分和状态。overall：ok 都对；none 关键部分没装；update 只是我们的 jar 有新版本；fix 装了但有缺的或版本不对。
+ * 适配插件装的比要装的新（清单比游戏里的旧）算 ok；核心比主程序新算 fix，但不能在这里装（coreNewer，要先更新主程序）。
+ */
 export function inspectPlugins(gameDir, catalog = loadCatalog()) {
   const scan = scanMods(gameDir);
   const describe = (p) => {
     const parts = [];
-    if (p.jar) parts.push({ kind: 'jar', label: p.kind === 'core' ? p.name : 'MCBOT 适配', file: p.jar, ...jarState(gameDir, scan, p), packaged: !!p.src });
+    if (p.jar) parts.push({ kind: 'jar', label: p.kind === 'core' ? p.name : 'MCBOT 适配', file: p.jar, ...jarState(gameDir, scan, p), from: p.src ? 'package' : 'download' });
     for (const m of modsNeeded(catalog, p)) parts.push({ kind: 'mod', label: m.modId, modId: m.modId, want: m.version, side: m.side, download: { file: m.file, size: m.size }, ...modState(scan, m) });
     if (p.config) parts.push({ kind: 'config', label: '通用物品槽配置', file: p.config.file.replace(/\\/g, '/'), ...configState(gameDir, p) });
     const key = p.jar ? parts[0] : p.config ? parts[parts.length - 1] : parts[0];
-    const overall = parts.every((x) => x.state === 'ok') ? 'ok' : !key || key.state === 'missing' ? 'none' : 'fix';
+    const good = (x) => x.state === 'ok' || (x.kind === 'jar' && x.state === 'newer' && p.kind !== 'core');
+    const rest = parts.filter((x) => x !== parts[0] || !p.jar);
+    const overall = parts.every(good) ? 'ok' : !key || key.state === 'missing' ? 'none' : p.jar && parts[0].state === 'old' && rest.every(good) ? 'update' : 'fix';
+    const coreNewer = p.kind === 'core' && parts[0].state === 'newer';
     return { id: p.id, kind: p.kind, name: p.name, nameEn: p.nameEn || '', what: p.what, evidence: p.evidence || '', overall, parts,
-      canInstall: overall !== 'ok', canUninstall: p.kind !== 'core' && overall !== 'none' };
+      version: p.version || '', notes: overall === 'update' ? p.notes || [] : [], date: p.date || '', needApp: p.needApp || null, coreNewer,
+      canInstall: overall !== 'ok' && !coreNewer, canUninstall: p.kind !== 'core' && overall !== 'none' };
   };
   const core = describe(catalog.core);
   // 所有插件都依赖核心：核心未安装或为旧版本时，插件多一项「核心模组」，不能显示为已安装
   const withCore = (d) => {
     if (core.overall === 'ok') return d;
     const parts = [...d.parts, { kind: 'core', label: '核心模组', file: catalog.core.jar, state: core.parts[0].state }];
-    const overall = d.overall === 'none' ? 'none' : 'fix';
+    const overall = d.overall === 'none' ? 'none' : core.overall === 'update' && ['ok', 'update'].includes(d.overall) ? 'update' : 'fix';
     return { ...d, parts, overall, canInstall: true, canUninstall: d.canUninstall };
   };
   return { minecraft: catalog.minecraft, core, plugins: catalog.plugins.map((p) => withCore(describe(p))) };
@@ -220,47 +288,96 @@ export function setPluginAi(runtime, gameDir, id, enabled, catalog = loadCatalog
 
 const fmtSize = (n) => (n >= 1024 * 1024 ? (n / 1024 / 1024).toFixed(1) + ' MB' : Math.max(1, Math.round(n / 1024)) + ' KB');
 const cached = (downloads, m) => { const f = path.join(downloads, m.file); try { return fs.statSync(f).size === m.size ? f : ''; } catch { return ''; } };
+/** 下载的 jar 是不是声明了这个 mod id 和版本（我们的 jar 下载后、用缓存前都查）。 */
+export function jarDeclares(file, modId, version) {
+  const e = readZipEntries(file, ['META-INF/neoforge.mods.toml', 'META-INF/MANIFEST.MF']);
+  return !!e && modsInToml(e['META-INF/neoforge.mods.toml'] || '', e['META-INF/MANIFEST.MF'] || '').some((m) => m.modId === modId && m.version === version);
+}
+const cachedOurs = (downloads, entry) => {
+  const f = path.join(downloads, entry.jar);
+  try { if (entry.remote.size && fs.statSync(f).size !== entry.remote.size) return false; } catch { return false; }
+  return jarDeclares(f, entry.modId, entry.version);
+};
+const ACTIONS = ['install', 'uninstall', 'update-all', 'remove-all'];
+const ALL_NAMES = { 'update-all': '全部更新', 'remove-all': '从此游戏移除 mcbot' };
 
 /**
- * 装或卸一个插件要做的事。steps 里每一步：
- * download（从 Modrinth 下载到缓存）、add（放进 mods）、remove（从 mods 移到备份）、config（改通用物品槽配置）。
- * notes 是给人看的提醒；error 表示现在不能做。
+ * 装或卸插件要做的事。action：install（安装、更新或修复一个插件）、uninstall、update-all（核心加上所有已安装的插件）、
+ * remove-all（移走核心、所有适配 jar 和 config/mcbot-server-control/，被适配的模组本体保留）。steps 里每一步：
+ * download（下载到缓存：第三方从 Modrinth，我们的按 urls 顺序）、add（放进 mods）、remove（从 mods 移到备份）、
+ * remove-dir（把整个目录移到备份）、config（改通用物品槽配置）。notes 是给人看的提醒；error 表示现在不能做。
  */
-export function planPlugin(gameDir, id, action, { catalog = loadCatalog(), downloads = path.join(runtimeDir(), 'mod-downloads') } = {}) {
-  const target = id === catalog.core.id ? catalog.core : catalog.plugins.find((p) => p.id === id);
-  if (!target) return { ok: false, error: '插件不存在' };
-  if (!['install', 'uninstall'].includes(action)) return { ok: false, error: '仅支持安装或卸载' };
+export function planPlugin(gameDir, id, action, { catalog = loadCatalog(), runtime = runtimeDir(), downloads = path.join(runtime, 'mod-downloads'),
+  sources = downloadSources(cachedIndex(runtime)) } = {}) {
+  if (!ACTIONS.includes(action)) return { ok: false, error: '不支持的操作' };
+  const whole = action === 'update-all' || action === 'remove-all';
+  const target = whole ? null : id === catalog.core.id ? catalog.core : catalog.plugins.find((p) => p.id === id);
+  if (!whole && !target) return { ok: false, error: '插件不存在' };
   // 版本不在支持范围内的游戏不装：1.21.1 的模组放进别的版本会使游戏无法启动
   const support = gameSupport(gameDir, catalog.platform);
-  if (action === 'install' && support.supported === false) return { ok: false, error: `${support.reason}。此游戏无法安装插件` };
+  if ((action === 'install' || action === 'update-all') && support.supported === false) return { ok: false, error: `${support.reason}。此游戏无法安装插件` };
   const status = inspectPlugins(gameDir, catalog);
-  const info = target === catalog.core ? status.core : status.plugins.find((p) => p.id === id);
+  const infoOf = (p) => (p === catalog.core ? status.core : status.plugins.find((x) => x.id === p.id));
   const steps = [], notes = [], server = gameType(gameDir) === 'server';
-  const removeFiles = (files, why) => { for (const f of files || []) if (!steps.some((s) => s.op === 'remove' && s.file === f)) steps.push({ op: 'remove', file: f, why }); };
+  const has = (op, file) => steps.some((s) => s.op === op && s.file === file);
+  const removeFiles = (files, why) => { for (const f of files || []) if (!has('remove', f)) steps.push({ op: 'remove', file: f, why }); };
+  const note = (text) => { if (!notes.includes(text)) notes.push(text); };
 
-  if (action === 'install') {
-    // 所有插件都依赖核心（内置适配、配置类插件也一样）：核心未安装或为旧版本时一并安装
-    const jars = [];
-    if (target !== catalog.core && status.core.parts[0].state !== 'ok') jars.push([catalog.core, status.core.parts[0]]);
-    if (target.jar) jars.push([target, info.parts[0]]);
-    for (const [entry, part] of jars) {
-      if (part.state === 'ok') continue;
-      if (!entry.src) return { ok: false, error: `安装包中缺少 ${entry.jar}，无法安装（仓库环境需先用 gradle 构建）` };
-      removeFiles(part.files, '旧版本');
-      steps.push({ op: 'add', file: entry.jar, from: 'package', label: entry === catalog.core ? '核心模组' : `${target.name}适配` });
+  // 我们的 jar：本地有同名构建（仓库里）就复制，没有就从更新服务器或 GitHub 下载
+  const ourJar = (entry, part, label) => {
+    if (part.state === 'ok' || (part.state === 'newer' && entry !== catalog.core)) return '';
+    if (part.state === 'newer') return `游戏中的核心模组（${part.version}）比主程序（${entry.version}）新：请先更新主程序`;
+    removeFiles(part.files, part.state === 'different' && part.version === entry.version ? '需重新安装' : `${part.version || '旧版本'}，更换为 ${entry.version}`);
+    if (has('add', entry.jar)) return '';
+    if (!entry.src && !cachedOurs(downloads, entry)) {
+      if (!sources.length) return '没有可用的下载地址';
+      steps.push({ op: 'download', ours: true, modId: entry.modId, version: entry.version, file: entry.jar, size: entry.remote.size,
+        sizeText: entry.remote.size ? fmtSize(entry.remote.size) : '', urls: sources.map((s) => fileUrl(s, entry.remote)), source: 'mcbot 更新服务器' });
     }
+    steps.push({ op: 'add', file: entry.jar, from: entry.src ? 'package' : 'download', label });
+    return '';
+  };
+  const installSteps = (t) => {
+    const info = infoOf(t);
+    // 所有插件都依赖核心（内置适配、配置类插件也一样）：核心未安装或为旧版本时一并安装
+    if (t !== catalog.core) { const e = ourJar(catalog.core, status.core.parts[0], '核心模组'); if (e) return e; }
+    if (t.jar) { const e = ourJar(t, info.parts[0], t === catalog.core ? '核心模组' : `${t.name}适配`); if (e) return e; }
     for (const part of info.parts.filter((x) => x.kind === 'mod' && x.state !== 'ok')) {
-      const m = modsNeeded(catalog, target).find((x) => x.modId === part.modId);
-      if (!m.url || !MODRINTH_RE.test(m.url) || !JAR_RE.test(m.file) || !(m.size > 0)) return { ok: false, error: `${m.modId} 缺少官方下载信息` };
+      const m = modsNeeded(catalog, t).find((x) => x.modId === part.modId);
+      if (!m.url || !MODRINTH_RE.test(m.url) || !JAR_RE.test(m.file) || !(m.size > 0)) return `${m.modId} 缺少官方下载信息`;
       removeFiles(part.state === 'wrong' ? part.files : [], `${m.modId} ${part.version}，需更换为 ${m.version}`);
-      if (!cached(downloads, m)) steps.push({ op: 'download', modId: m.modId, version: m.version, file: m.file, size: m.size, sizeText: fmtSize(m.size), url: m.url, source: 'Modrinth', license: m.license });
-      steps.push({ op: 'add', file: m.file, from: 'download', label: `${m.modId} ${m.version}` });
-      if (server && m.side === 'both') notes.push(`${m.modId} 客户端也需安装：加入此服务器的玩家需在自己的游戏中安装 ${m.file}`);
+      if (!has('add', m.file)) {
+        if (!cached(downloads, m)) steps.push({ op: 'download', modId: m.modId, version: m.version, file: m.file, size: m.size, sizeText: fmtSize(m.size), urls: [m.url], source: 'Modrinth', license: m.license });
+        steps.push({ op: 'add', file: m.file, from: 'download', label: `${m.modId} ${m.version}` });
+      }
+      if (server && m.side === 'both') note(`${m.modId} 客户端也需安装：加入此服务器的玩家需在自己的游戏中安装 ${m.file}`);
     }
     const cfg = info.parts.find((x) => x.kind === 'config');
-    if (cfg?.state === 'broken') return { ok: false, error: `${cfg.file} 无法读取，请先修复或删除该文件` };
-    if (cfg && cfg.state !== 'ok') steps.push({ op: 'config', file: cfg.file, set: target.config.mods });
+    if (cfg?.state === 'broken') return `${cfg.file} 无法读取，请先修复或删除该文件`;
+    if (cfg && cfg.state !== 'ok' && !has('config', cfg.file)) steps.push({ op: 'config', file: cfg.file, set: { ...t.config.mods } });
+    else if (cfg && cfg.state !== 'ok') Object.assign(steps.find((s) => s.op === 'config' && s.file === cfg.file).set, t.config.mods);
+    return '';
+  };
+
+  if (action === 'install') {
+    const e = installSteps(target);
+    if (e) return { ok: false, error: e };
+  } else if (action === 'update-all') {
+    // 核心加上所有已安装的插件（没装的不装）；只差主程序版本的插件（needApp）不在这里处理
+    for (const t of [catalog.core, ...catalog.plugins]) {
+      const info = infoOf(t);
+      if (info.overall === 'ok' || (t !== catalog.core && info.overall === 'none')) continue;
+      const e = installSteps(t);
+      if (e) return { ok: false, error: t === catalog.core ? e : `${t.name}：${e}` };
+    }
+  } else if (action === 'remove-all') {
+    removeFiles(status.core.parts[0].files, '移除核心模组');
+    for (const t of catalog.plugins) if (t.jar) removeFiles(infoOf(t).parts[0].files, `移除${t.name}适配`);
+    if (fs.existsSync(path.join(gameDir, CONFIG_DIR))) steps.push({ op: 'remove-dir', file: CONFIG_DIR.replace(/\\/g, '/'), why: 'mcbot 的配置：Bot 名称、端口、连接文件和通用物品槽配置' });
+    const kept = [...new Set(status.plugins.flatMap((p) => p.parts).filter((x) => x.kind === 'mod' && x.state !== 'missing').map((x) => x.modId))];
+    if (kept.length) note(`${kept.join('、')} 本体将保留（世界中可能存在其方块和物品）；如需移除，请手动从 mods 中移走`);
   } else {
+    const info = infoOf(target);
     if (!info.canUninstall) return { ok: false, error: target === catalog.core ? '核心模组不支持在此卸载' : '尚未安装' };
     if (target.jar) removeFiles(info.parts[0].files, '卸载适配');
     const cfg = info.parts.find((x) => x.kind === 'config');
@@ -269,35 +386,30 @@ export function planPlugin(gameDir, id, action, { catalog = loadCatalog(), downl
       steps.push({ op: 'config', file: cfg.file, unset: Object.keys(target.config.mods) });
     }
     const kept = info.parts.filter((x) => x.kind === 'mod' && x.state !== 'missing').map((x) => x.modId);
-    if (kept.length) notes.push(`${kept.join('、')} 本体将保留（世界中可能存在其方块和物品）；如需移除，请手动从 mods 中移走`);
+    if (kept.length) note(`${kept.join('、')} 本体将保留（世界中可能存在其方块和物品）；如需移除，请手动从 mods 中移走`);
   }
   if (!steps.length) return { ok: true, id, action, steps, notes, nothing: true };
-  notes.push(server ? '修改后需重启服务器才能生效' : '修改后需重启游戏才能生效');
-  if (steps.some((s) => s.op === 'remove' || (s.op === 'config' && fs.existsSync(path.join(gameDir, s.file))))) notes.push('被替换的文件和修改前的配置将备份到游戏目录的 mcbot-backups 中');
-  return { ok: true, id, action, name: target.name, steps, notes, downloadBytes: steps.filter((s) => s.op === 'download').reduce((n, s) => n + s.size, 0) };
+  note(server ? '修改后需重启服务器才能生效' : '修改后需重启游戏才能生效');
+  if (steps.some((s) => s.op === 'remove' || s.op === 'remove-dir' || (s.op === 'config' && fs.existsSync(path.join(gameDir, s.file))))) note('被替换的文件和修改前的配置将备份到游戏目录的 mcbot-backups 中');
+  if (steps.some((s) => s.op === 'download' && s.ours)) note(sources.some(isGithubSource) ? 'mcbot 的模组从 mcbot 更新服务器下载，无法连接时改从 GitHub 下载；需要联网' : 'mcbot 的模组从 mcbot 更新服务器下载；需要联网');
+  return { ok: true, id, action, name: whole ? ALL_NAMES[action] : target.name, steps, notes, downloadBytes: steps.filter((s) => s.op === 'download').reduce((n, s) => n + (s.size || 0), 0) };
 }
 
-/** 按 compat.json 的地址下载到缓存；大小对上才算数。 */
+/** 下载一步：按 urls 顺序试，一个失败换下一个；我们的 jar 还要核对 mods.toml 里的 mod id 和版本。 */
 async function download(step, downloads, fetchImpl, progress) {
-  fs.mkdirSync(downloads, { recursive: true });
-  const dest = path.join(downloads, step.file), part = `${dest}.${process.pid}.part`;
-  const r = await fetchImpl(step.url, { redirect: 'follow', signal: AbortSignal.timeout(10 * 60 * 1000) });
-  if (!r.ok || !r.body) throw new Error(`下载 ${step.file} 失败（HTTP ${r.status}）`);
-  let got = 0;
-  // 用 pipeline 写盘：读取、超长、写盘出错都在这里抛出，失败时删掉半截文件
-  const count = async function* (src) {
-    for await (const chunk of src) {
-      got += chunk.length;
-      if (got > step.size) throw new Error(`${step.file} 大于清单记录的大小，已放弃使用`);
-      progress(got);
-      yield chunk;
+  const dest = path.join(downloads, step.file);
+  let error = '';
+  for (const url of step.urls) {
+    try {
+      await downloadFile(url, dest, step.size, { fetchImpl, progress });
+      if (step.ours && !jarDeclares(dest, step.modId, step.version)) { fs.rmSync(dest, { force: true }); throw new Error('文件内容与清单不符，已放弃使用'); }
+      return;
+    } catch (e) {
+      error = e.code && !e.message.includes('HTTP') ? `无法写入下载缓存（${e.code}）：请检查 ${downloads} 是否可写`
+        : e.message.startsWith('fetch failed') ? (step.ours ? '无法连接 mcbot 更新服务器和 GitHub：需要联网才能安装模组' : '无法连接 Modrinth') : e.message;
     }
-  };
-  try {
-    await pipeline(r.body, count, fs.createWriteStream(part));
-    if (got !== step.size) throw new Error(`${step.file} 大小不一致（清单 ${step.size}，实际 ${got}），已放弃使用`);
-    fs.renameSync(part, dest);
-  } catch (e) { try { fs.rmSync(part, { force: true }); } catch { /* 留着也无妨 */ } throw e; }
+  }
+  throw new Error(`下载 ${step.file} 失败：${error}`);
 }
 
 const stamp = (d = new Date()) => d.toISOString().replace(/[-:]/g, '').replace('T', '-').slice(0, 15);
@@ -320,9 +432,9 @@ function editItemHandlers(gameDir, step) {
  * 执行一份重新算出来的计划（不信网页传来的步骤）。顺序：先下载（不碰游戏），再把要移走的挪进备份，
  * 再放新文件、改配置；中途出错就把放进去的拿掉、移走的放回来。
  */
-export async function applyPlugin(gameDir, id, action, { catalog = loadCatalog(), downloads = path.join(runtimeDir(), 'mod-downloads'), fetchImpl = fetch,
-  online = (dir) => gameOnline(connectionFileOf(dir)), listProcesses = javaProcesses, progress = () => {}, now = new Date() } = {}) {
-  const plan = planPlugin(gameDir, id, action, { catalog, downloads });
+export async function applyPlugin(gameDir, id, action, { catalog = loadCatalog(), runtime = runtimeDir(), downloads = path.join(runtime, 'mod-downloads'), fetchImpl = fetch,
+  sources = downloadSources(cachedIndex(runtime)), online = (dir) => gameOnline(connectionFileOf(dir)), listProcesses = javaProcesses, progress = () => {}, now = new Date() } = {}) {
+  const plan = planPlugin(gameDir, id, action, { catalog, runtime, downloads, sources });
   if (!plan.ok || plan.nothing) return plan;
   // 游戏在启动、加载模组或世界里都不改文件；下载要等一阵，所以放文件前还要再查一次
   const running = async () => runMessage((await gameRunState(gameDir, { online, listProcesses })).state, gameType(gameDir));
@@ -333,15 +445,14 @@ export async function applyPlugin(gameDir, id, action, { catalog = loadCatalog()
   for (const s of plan.steps.filter((x) => x.op === 'download')) {
     progress({ phase: 'download', file: s.file, bytes: done, total });
     try { await download(s, downloads, fetchImpl, (got) => progress({ phase: 'download', file: s.file, bytes: done + got, total })); }
-    catch (e) { return { ok: false, error: e.name === 'TimeoutError' ? `下载 ${s.file} 超时` : e.message.startsWith('fetch failed') ? `下载 ${s.file} 时无法连接 Modrinth`
-      : e.code ? `${s.file} 无法写入下载缓存（${e.code}）：请检查 ${downloads} 是否可写` : e.message }; }
-    done += s.size;
+    catch (e) { return { ok: false, error: e.message }; }
+    done += s.size || 0;
   }
   const busyAgain = await running();
   if (busyAgain) return { ok: false, error: busyAgain };
   progress({ phase: 'files' });
   const mods = path.join(gameDir, 'mods'), backup = path.join(gameDir, 'mcbot-backups', stamp(now));
-  const moved = [], added = [], configs = [], tmps = [];
+  const moved = [], added = [], configs = [], tmps = [], dirs = [];
   const all = [...catalog.plugins, catalog.core];
   try {
     for (const s of plan.steps) {
@@ -358,6 +469,11 @@ export async function applyPlugin(gameDir, id, action, { catalog = loadCatalog()
         tmps.push(`${dest}.tmp`);
         fs.copyFileSync(src, `${dest}.tmp`); fs.renameSync(`${dest}.tmp`, dest);
         added.push(s.file);
+      } else if (s.op === 'remove-dir') {
+        const to = path.join(backup, s.file);
+        fs.mkdirSync(path.dirname(to), { recursive: true });
+        fs.renameSync(path.join(gameDir, s.file), to);
+        dirs.push(s.file);
       } else if (s.op === 'config') {
         const file = path.join(gameDir, ITEM_HANDLERS);
         if (fs.existsSync(file)) { fs.mkdirSync(path.join(backup, path.dirname(ITEM_HANDLERS)), { recursive: true }); fs.copyFileSync(file, path.join(backup, ITEM_HANDLERS)); configs.push(true); }
@@ -377,6 +493,7 @@ export async function applyPlugin(gameDir, id, action, { catalog = loadCatalog()
       try { fs.renameSync(path.join(backup, 'mods', f), path.join(mods, f)); stuckNew.delete(f); } catch { failed.push({ file: `mods/${f}`, fix: 'restore' }); }
     }
     failed.push(...stuckNew.values());
+    for (const d of dirs) { try { fs.renameSync(path.join(backup, d), path.join(gameDir, d)); } catch { failed.push({ file: d, fix: 'restore' }); } }
     if (configs.length) {
       const file = path.join(gameDir, ITEM_HANDLERS);
       try { if (configs[0]) fs.copyFileSync(path.join(backup, ITEM_HANDLERS), file); else fs.rmSync(file, { force: true }); } catch { failed.push({ file: ITEM_HANDLERS.split(path.sep).join('/'), fix: configs[0] ? 'restore' : 'delete' }); }
@@ -387,7 +504,7 @@ export async function applyPlugin(gameDir, id, action, { catalog = loadCatalog()
     if (failed.length) Object.assign(out, { rollbackFailed: failed, backup });
     return out;
   }
-  const backedUp = moved.length || configs.some(Boolean);
+  const backedUp = moved.length || dirs.length || configs.some(Boolean);
   return { ok: true, id, action, name: plan.name, notes: plan.notes, backup: backedUp ? backup : '' };
 }
 

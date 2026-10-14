@@ -3,33 +3,14 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import zlib from 'node:zlib';
 import { applyPlugin, disabledPlugins, inspectPlugins, loadCatalog, modsInToml, planPlugin, readZipEntries, scanMods, setPluginAi } from '../../scripts/webui-plugins.mjs';
+import { modJar, zip } from './jar-fixture.mjs';
 import { createLauncher, launchArgs, normalizeProfile } from '../../scripts/webui-profiles.mjs';
 import { createWebServer } from '../../scripts/webui.mjs';
 import { gameSupport, gameVersion } from '../../scripts/webui-games.mjs';
 
 const tmp = () => fs.mkdtempSync(path.join(os.tmpdir(), 'mcbot-plugins-'));
 const put = (file, data) => { fs.mkdirSync(path.dirname(file), { recursive: true }); fs.writeFileSync(file, data); };
-
-/** 最小的 zip：每个条目一个本地头加中央目录；deflate 为 true 时压缩（读的时候不查 CRC，这里写 0）。 */
-function zip(entries, deflate = false) {
-  const locals = [], centrals = [];
-  let offset = 0;
-  for (const [name, text] of Object.entries(entries)) {
-    const raw = Buffer.from(text), data = deflate ? zlib.deflateRawSync(raw) : raw, n = Buffer.from(name);
-    const lh = Buffer.alloc(30); lh.writeUInt32LE(0x04034b50, 0); lh.writeUInt16LE(deflate ? 8 : 0, 8); lh.writeUInt32LE(data.length, 18); lh.writeUInt32LE(raw.length, 22); lh.writeUInt16LE(n.length, 26);
-    const ch = Buffer.alloc(46); ch.writeUInt32LE(0x02014b50, 0); ch.writeUInt16LE(deflate ? 8 : 0, 10); ch.writeUInt32LE(data.length, 20); ch.writeUInt32LE(raw.length, 24); ch.writeUInt16LE(n.length, 28); ch.writeUInt32LE(offset, 42);
-    locals.push(lh, n, data); centrals.push(ch, n); offset += 30 + n.length + data.length;
-  }
-  const cd = Buffer.concat(centrals), end = Buffer.alloc(22);
-  end.writeUInt32LE(0x06054b50, 0); end.writeUInt16LE(centrals.length / 2, 8); end.writeUInt16LE(centrals.length / 2, 10); end.writeUInt32LE(cd.length, 12); end.writeUInt32LE(offset, 16);
-  return Buffer.concat([...locals, cd, end]);
-}
-const modJar = (modId, version, { extra = '', deflate = true, manifest } = {}) => zip({
-  'META-INF/MANIFEST.MF': manifest || 'Manifest-Version: 1.0\n',
-  'META-INF/neoforge.mods.toml': `modLoader="javafml"\n[[mods]]\nmodId="${modId}"\nversion="${version}"\n${extra}[[dependencies.${modId}]]\nmodId="neoforge"\nversion="[21,)"\n`,
-}, deflate);
 
 /** 一个假的包：compat.json、核心和森罗厨房适配的 jar，第三方模组的“官方下载”由 fetchImpl 假装。 */
 function fixture() {

@@ -67,6 +67,14 @@ export function readIndex(raw) {
   } };
 }
 
+/** 上一次存下的清单（插件页也用它）：{ index, checkedAt, from }；没有或格式不对返回 null。 */
+export function cachedIndex(runtime) {
+  const c = readJson(path.join(runtime, INDEX_FILE)), got = readIndex(c?.index);
+  return got.ok ? { index: got.index, checkedAt: c.checkedAt || 0, from: typeof c.from === 'string' ? c.from : '' } : null;
+}
+/** 下载用的来源顺序：读到清单的那个、清单里记的、默认的。 */
+export const downloadSources = (cache) => mergeSources(cache?.from ? [cache.from] : [], cache?.index?.sources || [], DEFAULT_SOURCES);
+
 /** 按顺序读各来源的清单，用第一个读到且格式正确的。 */
 export async function fetchIndex(sources, { fetchImpl = fetch, timeoutMs = INDEX_TIMEOUT_MS } = {}) {
   let tooNew = false;
@@ -99,8 +107,8 @@ export function dismissNotice(runtime, id) {
   return { ok: true };
 }
 
-/** 下载一个文件到 dest：只比大小；多久没收到数据算超时；先写 .part，对上了才改名。 */
-export async function downloadFile(url, dest, size, { fetchImpl = fetch, idleMs = IDLE_TIMEOUT_MS, progress = () => {} } = {}) {
+/** 下载一个文件到 dest：只比大小（size 为 0 表示清单没写大小，只限制不超过 maxBytes）；多久没收到数据算超时；先写 .part，对上了才改名。 */
+export async function downloadFile(url, dest, size, { maxBytes = 256 * 1024 * 1024, fetchImpl = fetch, idleMs = IDLE_TIMEOUT_MS, progress = () => {} } = {}) {
   fs.mkdirSync(path.dirname(dest), { recursive: true });
   const part = `${dest}.${process.pid}.part`, ctl = new AbortController();
   let timer, out = null;
@@ -113,7 +121,7 @@ export async function downloadFile(url, dest, size, { fetchImpl = fetch, idleMs 
     const count = async function* (src) {
       for await (const chunk of src) {
         arm(); got += chunk.length;
-        if (got > size) throw new Error('文件大于清单记录的大小，已放弃使用');
+        if (got > (size || maxBytes)) throw new Error(size ? '文件大于清单记录的大小，已放弃使用' : '文件过大，已放弃使用');
         progress(got);
         yield chunk;
       }
@@ -123,7 +131,7 @@ export async function downloadFile(url, dest, size, { fetchImpl = fetch, idleMs 
     const piping = pipeline(r.body, count, out, { signal: ctl.signal });
     piping.catch(() => {});
     await Promise.race([piping, new Promise((_, reject) => ctl.signal.addEventListener('abort', () => reject(ctl.signal.reason), { once: true }))]);
-    if (got !== size) throw new Error(`文件大小不一致（清单 ${size}，实际 ${got}），已放弃使用`);
+    if (size && got !== size) throw new Error(`文件大小不一致（清单 ${size}，实际 ${got}），已放弃使用`);
     fs.renameSync(part, dest);
   } catch (e) {
     // 等写入流关掉再删，不然 Windows 上半截文件会留下
@@ -147,12 +155,11 @@ export function createUpdater({ runtime, programDir = PROGRAM_DIR, fetchImpl = f
   installed = () => isInstalled(programDir), launch = launchInstaller, exit = () => setTimeout(() => process.exit(0), 500), now = () => new Date() }) {
   const current = readAppVersion(programDir);
   let checking = null, lastError = '', tooNew = false, job = null;
-  const cached = () => readJson(path.join(runtime, INDEX_FILE));
 
   async function check() {
     if (checking) return checking;
     checking = (async () => {
-      const got = await fetchIndex(mergeSources(cached()?.index?.sources || [], DEFAULT_SOURCES), { fetchImpl });
+      const got = await fetchIndex(mergeSources(cachedIndex(runtime)?.index?.sources || [], DEFAULT_SOURCES), { fetchImpl });
       tooNew = !!got.tooNew; lastError = got.ok ? '' : got.error;
       if (got.ok) {
         fs.mkdirSync(runtime, { recursive: true });
@@ -164,7 +171,7 @@ export function createUpdater({ runtime, programDir = PROGRAM_DIR, fetchImpl = f
 
   /** 页面用的状态：当前版本、最新版本、要弹的公告和公告历史。 */
   function view() {
-    const c = cached(), index = readIndex(c?.index).ok ? c.index : null;
+    const c = cachedIndex(runtime), index = c?.index || null;
     const app = index?.app;
     const available = !!app && compareVersions(app.version, current) > 0;
     const notices = index ? noticesFor(index, current, now()) : [];
@@ -211,13 +218,13 @@ export function createUpdater({ runtime, programDir = PROGRAM_DIR, fetchImpl = f
   async function start() {
     if (job && job.phase !== 'error') return { ok: false, error: '更新已在进行中' };
     if (!installed()) return { ok: false, error: '开发环境中无法自动更新：请使用安装包安装的 mcbot' };
-    const c = cached(), got = readIndex(c?.index);
-    if (!got.ok) return { ok: false, error: '尚未读取到更新清单：请先检查更新' };
-    if (compareVersions(got.index.app.version, current) <= 0) return { ok: false, error: '已是最新版本' };
+    const c = cachedIndex(runtime);
+    if (!c) return { ok: false, error: '尚未读取到更新清单：请先检查更新' };
+    if (compareVersions(c.index.app.version, current) <= 0) return { ok: false, error: '已是最新版本' };
     const reason = await blocker();
     if (reason) return { ok: false, error: reason };
-    job = { phase: 'download', bytes: 0, total: got.index.app.size };
-    run(got.index.app, mergeSources(c.from ? [c.from] : [], got.index.sources, DEFAULT_SOURCES)).catch((e) => Object.assign(job, { phase: 'error', error: e.message }));
+    job = { phase: 'download', bytes: 0, total: c.index.app.size };
+    run(c.index.app, downloadSources(c)).catch((e) => Object.assign(job, { phase: 'error', error: e.message }));
     return { ok: true };
   }
 

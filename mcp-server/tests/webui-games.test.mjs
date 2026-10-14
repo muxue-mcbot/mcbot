@@ -5,6 +5,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { addGameDir, connectionFileOf, findGames, gameDirOf, gameOnline, importYsmModel, inspectGame, localAppearances, modelLabels, personaFile, readPersona, gameType, readGameConfig, removeGameDir, writeGameConfig, writePersona } from '../../scripts/webui-games.mjs';
 import { endReason, waitingText } from '../../scripts/webui-profiles.mjs';
+import { modJar } from './jar-fixture.mjs';
 
 const tmp = () => fs.mkdtempSync(path.join(os.tmpdir(), 'mcbot-games-'));
 const put = (file, text) => { fs.mkdirSync(path.dirname(file), { recursive: true }); fs.writeFileSync(file, text); };
@@ -32,14 +33,26 @@ test('找游戏目录：Prism 系实例用 instance.cfg 的名字，.minecraft �
   } finally { fs.rmSync(root, { recursive: true, force: true }); }
 });
 
-test('游戏状态：核心 jar 按字节比对，读 server.json 的名字，连接文件不带令牌', () => {
+test('游戏状态：核心按版本和主程序比（版本相同再和本地构建比字节），读 server.json 的名字，连接文件不带令牌', () => {
   const dir = tmp();
   try {
-    const ref = path.join(dir, 'ref.jar'); fs.writeFileSync(ref, 'new');
-    put(path.join(dir, 'mods', 'mcbot-server-control-0.1.0.jar'), 'old');
+    const core = (v, extra) => modJar('mcbot_server_control', v, { extra });
+    const ref = { version: '0.0.2', modId: 'mcbot_server_control', jar: path.join(dir, 'ref.jar') }, jar = path.join(dir, 'mods', 'mcbot-server-control-0.0.2.jar');
+    fs.writeFileSync(ref.jar, core('0.0.2', '# new\n'));
+    put(path.join(dir, 'mods', 'mcbot-server-control-0.0.1.jar'), core('0.0.1'));
     const g0 = inspectGame({ dir, kind: 'Prism', name: 'x' }, ref);
-    assert.equal(g0.core, 'different'); assert.equal(g0.hasConnection, false); assert.equal(g0.nameConfigurable, false);
-    fs.writeFileSync(path.join(dir, 'mods', 'mcbot-server-control-0.1.0.jar'), 'new');
+    assert.equal(g0.core, 'old'); assert.equal(g0.coreVersion, '0.0.1'); assert.equal(g0.hasConnection, false); assert.equal(g0.nameConfigurable, false);
+    fs.rmSync(path.join(dir, 'mods', 'mcbot-server-control-0.0.1.jar'));
+    put(path.join(dir, 'mods', 'mcbot-server-control-0.1.0.jar'), core('0.1.0'));
+    assert.equal(inspectGame({ dir, kind: 'Prism', name: 'x' }, ref).core, 'old', '版本号方案之前的 0.1.0 当旧版');
+    fs.rmSync(path.join(dir, 'mods', 'mcbot-server-control-0.1.0.jar'));
+    put(path.join(dir, 'mods', 'mcbot-server-control-0.0.3.jar'), core('0.0.3'));
+    assert.equal(inspectGame({ dir, kind: 'Prism', name: 'x' }, ref).core, 'newer');
+    fs.rmSync(path.join(dir, 'mods', 'mcbot-server-control-0.0.3.jar'));
+    put(jar, core('0.0.2'));
+    assert.equal(inspectGame({ dir, kind: 'Prism', name: 'x' }, ref).core, 'different', '版本相同、和本地构建不同');
+    assert.equal(inspectGame({ dir, kind: 'Prism', name: 'x' }, { ...ref, jar: '' }).core, 'ok', '安装版没有本地构建，只比版本');
+    fs.copyFileSync(ref.jar, jar);
     put(control(dir, 'server.json'), JSON.stringify({ worldId: 'auto', username: 'ServerBot', port: 8766 }));
     put(control(dir, 'connection.json'), JSON.stringify({ protocol: 2, backend: 'server', endpoint: 'http://127.0.0.1:8766/v2', token: 'secret-token', worldId: 'sp-w', username: 'ServerBot' }));
     const g = inspectGame({ dir, kind: 'Prism', name: 'x' }, ref);

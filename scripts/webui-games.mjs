@@ -13,6 +13,9 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { getAgentProtocol } from './agents/process-protocols.mjs';
 import { memoryDir as defaultMemoryDir, runtimeDir } from './paths.mjs';
+import { readAppVersion } from './version.mjs';
+// 循环引用：webui-plugins 也引用本文件；这里只在调用时用到它的函数
+import { compareInstalled, modsInToml, readZipEntries } from './webui-plugins.mjs';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const NAME_RE = /^[A-Za-z0-9_]{1,16}$/;
@@ -136,11 +139,13 @@ export function removeGameDir(runtime, dir) {
   writeExtraDirs(runtime, next); return { ok: true };
 }
 
-/** 用来比对的核心 jar：绿色版在 mods/ 下，仓库里在构建目录。 */
-export function referenceCoreJar(root = ROOT) {
-  const jar = readJson(path.join(root, 'compat.json'))?.core?.jar;
-  if (!jar) return '';
-  return [path.join(root, 'mods', jar), path.join(root, 'mods', 'mcbot-server-control', 'build', 'libs', jar)].find((p) => { try { return fs.statSync(p).isFile(); } catch { return false; } }) || '';
+/** 核心模组要装的版本（= 主程序版本），以及仓库里同名的本地构建（有的话版本相同时再比字节，开发时重新构建过也看得出来）。 */
+export function referenceCore(root = ROOT) {
+  const core = readJson(path.join(root, 'compat.json'))?.core, jar = core?.jar || '';
+  let version = '';
+  try { version = readAppVersion(root); } catch { /* 读不出就只看装没装 */ }
+  const local = jar ? path.join(root, 'mods', 'mcbot-server-control', 'build', 'libs', jar) : '';
+  return { version, modId: core?.id || 'mcbot_server_control', jar: local && (() => { try { return fs.statSync(local).isFile(); } catch { return false; } })() ? local : '' };
 }
 
 /**
@@ -149,22 +154,31 @@ export function referenceCoreJar(root = ROOT) {
  */
 export const gameType = (dir) => (fs.existsSync(path.join(String(dir || ''), 'server.properties')) ? 'server' : 'lan');
 
-/** 一个游戏目录的状态：核心模组、Bot 名、连接文件（不带令牌）。 */
-export function inspectGame(game, refJar = referenceCoreJar(), support = (dir) => { const r = gameSupport(dir); return { supported: r.supported, versionText: r.have || '', unsupported: r.reason || '' }; }) {
+/**
+ * 一个游戏目录的状态：核心模组、Bot 名、连接文件（不带令牌）。
+ * core：missing 未安装；old 比主程序旧；newer 比主程序新；different 装了不止一个，或版本相同但和本地构建字节不同；ok。
+ */
+export function inspectGame(game, ref = referenceCore(), support = (dir) => { const r = gameSupport(dir); return { supported: r.supported, versionText: r.have || '', unsupported: r.reason || '' }; }) {
   const mods = path.join(game.dir, 'mods');
   let jars = [];
   try { jars = fs.readdirSync(mods).filter((n) => /^mcbot-server-control-.*\.jar$/i.test(n)); } catch { /* 没有 mods */ }
-  let core = jars.length ? 'ok' : 'missing';
-  if (jars.length && refJar) {
-    // 比实际字节：文件名一样的旧构建也能看出来
-    try { if (!fs.readFileSync(path.join(mods, jars[0])).equals(fs.readFileSync(refJar))) core = 'different'; } catch { /* 读不了就不判断 */ }
+  let core = jars.length ? 'ok' : 'missing', coreVersion = '';
+  if (jars.length) {
+    const e = readZipEntries(path.join(mods, jars[0]), ['META-INF/neoforge.mods.toml', 'META-INF/MANIFEST.MF']) || {};
+    coreVersion = modsInToml(e['META-INF/neoforge.mods.toml'] || '', e['META-INF/MANIFEST.MF'] || '').find((m) => m.modId === (ref.modId || 'mcbot_server_control'))?.version || '';
+    const cmp = ref.version ? compareInstalled(coreVersion, ref.version) : 0;
+    if (jars.length > 1) core = 'different';
+    else if (cmp) core = cmp < 0 ? 'old' : 'newer';
+    else if (ref.jar) {
+      try { if (!fs.readFileSync(path.join(mods, jars[0])).equals(fs.readFileSync(ref.jar))) core = 'different'; } catch { /* 读不了就不判断 */ }
+    }
   }
   const server = readJson(path.join(game.dir, CONTROL_DIR, 'server.json'));
   const conn = readJson(connectionFileOf(game.dir));
   const connOk = conn?.protocol === 2 && conn?.backend === 'server' && NAME_RE.test(conn?.username || '') && !!conn?.token;
   return {
     dir: game.dir, kind: game.kind, name: game.name, manual: !!game.manual, type: gameType(game.dir),
-    core, coreJar: jars[0] || '',
+    core, coreJar: jars[0] || '', coreVersion,
     username: (NAME_RE.test(server?.username || '') ? server.username : '') || (connOk ? conn.username : ''),
     nameConfigurable: !!server,
     connectionFile: connectionFileOf(game.dir), hasConnection: connOk, worldId: connOk ? String(conn.worldId || '') : '',
@@ -187,8 +201,8 @@ export async function gameOnline(connectionFile, fetchImpl = fetch, timeoutMs = 
 }
 
 /** 列出所有游戏目录和状态；有连接文件的并发问一下世界开着没有。核心模组没装的排后面。 */
-export async function listGames(runtime, { env = process.env, fetchImpl = fetch, refJar = referenceCoreJar() } = {}) {
-  const games = findGames(runtime, env).map((g) => inspectGame(g, refJar));
+export async function listGames(runtime, { env = process.env, fetchImpl = fetch, ref = referenceCore() } = {}) {
+  const games = findGames(runtime, env).map((g) => inspectGame(g, ref));
   await Promise.all(games.map(async (g) => { g.online = g.hasConnection ? await gameOnline(g.connectionFile, fetchImpl) : false; }));
   const rank = (g) => (g.supported === false ? 4 : 0) + (g.core === 'missing' ? 2 : 0) + (g.online ? 0 : 1);
   return games.sort((a, b) => rank(a) - rank(b));

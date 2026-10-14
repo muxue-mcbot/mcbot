@@ -286,6 +286,7 @@ textarea:focus{border-color:var(--primary);background:var(--glass-strong);box-sh
 .plug .pt{display:flex;align-items:center;gap:8px;min-width:0}.plug .pt b{font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .plug .pt small{color:var(--muted);font-size:11px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.plug .pt .chip{margin-left:auto}
 .plug .pw{font-size:12.5px}
+.plug .pn{font-size:12px;color:var(--muted);display:flex;flex-direction:column;gap:2px}.plug .pn:empty{display:none}
 .plug .chips{display:flex;flex-wrap:wrap;gap:6px}
 .plug .pb{display:flex;align-items:center;gap:8px;margin-top:4px}.plug .pb .meta{margin:0;flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .plug .ai{display:flex;align-items:center;gap:8px;font-size:12.5px;padding-top:6px;border-top:1px solid var(--fill-hover)}
@@ -417,7 +418,7 @@ textarea:focus{border-color:var(--primary);background:var(--glass-strong);box-sh
 </div>
 
 <div class="pane" data-pane="plug" hidden>
-<div class="pane-note"><span id="p-where">安装到「连接配置」中选择的游戏。</span><button type="button" class="small ghost" id="p-refresh">刷新</button></div>
+<div class="pane-note"><span id="p-where">安装到「连接配置」中选择的游戏。</span><button type="button" class="small" id="p-all" hidden>全部更新</button><button type="button" class="small ghost" id="p-refresh">刷新</button><button type="button" class="small ghost" id="p-remove-all" hidden>从此游戏移除 mcbot</button></div>
 <div class="plug-warn" id="p-warn" hidden></div>
 <div class="plugs" id="plugs"></div>
 </div>
@@ -770,7 +771,9 @@ async function loadGames() {
 function gameNote(g) {
   if (g.supported === false) return ['err', '不支持的版本', g.unsupported];
   if (g.core === 'missing') return ['err', '未安装核心模组', '选中后可在「插件」中安装'];
-  if (g.core === 'different') return ['warn', '核心模组为旧版本', '与当前安装包中的版本不一致，选中后可在「插件」中更新'];
+  if (g.core === 'old') return ['warn', '核心模组需更新', '游戏中为 ' + (g.coreVersion || '旧版本') + '，选中后可在「插件」中更新'];
+  if (g.core === 'newer') return ['warn', '核心模组版本较新', '游戏中的核心模组（' + g.coreVersion + '）比主程序新，请先在「设置」中更新主程序'];
+  if (g.core === 'different') return ['warn', '核心模组需修复', '安装了多个核心模组，或与本地构建不一致；选中后可在「插件」中修复'];
   if (g.type === 'server') {
     if (!g.hasConnection) return ['warn', '服务器尚未启动过', '安装核心模组后，请先启动一次服务器'];
     return g.online ? ['ok', '服务器运行中', '可以启动托管'] : ['', '服务器未运行', '启动托管前请先启动服务器'];
@@ -832,7 +835,8 @@ $('#g-add').onclick = async () => {
 
 // ---- 插件：按 compat.json 把核心和各个适配装进选中的游戏；先看计划，确认后才动文件 ----
 let plug = null, plugSeq = 0, plugErr = '';
-const OVERALL = { ok: ['ok', '已安装'], fix: ['warn', '需修复'], none: ['', '未安装'] };
+const OVERALL = { ok: ['ok', '已安装'], update: ['warn', '需更新'], fix: ['warn', '需修复'], none: ['', '未安装'] };
+const JAR_STATE = { ok: ' ✓', old: '：需更新', newer: '：版本较新', different: '：需修复', missing: '：未安装' };
 async function loadPlugins() {
   const seq = ++plugSeq, dir = gameDir;
   let r = { ok: false, error: '请先在「连接配置」中选择游戏' };
@@ -842,18 +846,19 @@ async function loadPlugins() {
 }
 function partChip(x) {
   let cls = x.state === 'ok' ? 'ok' : x.state === 'missing' ? 'err' : 'warn', t;
-  if (x.kind === 'jar' || x.kind === 'core') t = x.label + (x.state === 'ok' ? ' ✓' : x.state === 'different' ? '：旧版本' : '：未安装');
+  if (x.kind === 'jar') t = x.label + (x.state === 'ok' ? ' ' + x.want + ' ✓' : x.state === 'missing' ? '：未安装' : JAR_STATE[x.state] + (x.version ? '（当前 ' + x.version + '）' : ''));
+  else if (x.kind === 'core') t = x.label + (JAR_STATE[x.state] || '：需更新');
   else if (x.kind === 'mod') t = x.modId + ' ' + x.want + (x.state === 'ok' ? ' ✓' : x.state === 'wrong' ? '：当前版本 ' + (x.version || '其他版本') : '：未安装');
   else t = x.label + (x.state === 'ok' ? ' ✓' : x.state === 'broken' ? '：文件无法读取' : x.state === 'wrong' ? '：版本不匹配' : '：未配置');
   const c = el('span', 'chip ' + cls, t);
   c.title = x.kind === 'mod' ? (x.state === 'ok' ? x.file : x.state === 'wrong' ? '需更换为 ' + x.want + '（' + (x.files || []).join('、') + '）' : '将从 Modrinth 下载 ' + x.download.file)
     : x.kind === 'core' ? '安装此插件时一并安装核心模组'
-    : x.kind === 'jar' ? (x.state === 'missing' ? (x.packaged ? '安装包自带，直接复制' : '安装包中缺少此 jar') : x.files?.join('、') || x.file) : x.file;
+    : x.kind === 'jar' ? (x.state === 'ok' || x.state === 'newer' ? x.files?.join('、') || x.file : (x.from === 'package' ? '将复制仓库中的本地构建 ' : '将从 mcbot 更新服务器下载 ') + x.file + (x.state === 'missing' ? '' : '（替换 ' + (x.files || []).join('、') + '）')) : x.file;
   return c;
 }
 function plugCard() {
   const d = el('div', 'plug');
-  d.innerHTML = '<div class="pt"><b></b><small></small><span class="chip"></span></div><div class="pw"></div><div class="chips"></div><div class="pb"><span class="meta"></span><button type="button" class="small go"></button><button type="button" class="small ghost un">卸载</button></div>'
+  d.innerHTML = '<div class="pt"><b></b><small></small><span class="chip"></span></div><div class="pw"></div><div class="chips"></div><div class="pn"></div><div class="pb"><span class="meta"></span><button type="button" class="small go"></button><button type="button" class="small ghost un">卸载</button></div>'
     + '<div class="ai" hidden><label><input type="checkbox" class="sw">给 AI 使用</label><small></small></div>';
   $('.ai input', d).onchange = (e) => pluginAi(d, e.target.checked);
   $('.go', d).onclick = () => pluginAction(d._p, 'install');
@@ -864,12 +869,19 @@ function updatePlug(d, p) {
   d._p = p; const core = p.kind === 'core', [cls, text] = OVERALL[p.overall];
   d.className = 'plug st-' + p.overall + (core ? ' core' : '');
   $('.pt b', d).textContent = p.name; $('.pt small', d).textContent = core ? '必装' : p.nameEn && p.nameEn !== p.name ? p.nameEn : '';
-  const c = $('.pt .chip', d); c.className = 'chip ' + (core && p.overall === 'none' ? 'err' : cls); c.textContent = core && p.overall === 'fix' ? '需更新' : text;
+  const c = $('.pt .chip', d); c.className = 'chip ' + (core && p.overall === 'none' ? 'err' : cls); c.textContent = p.coreNewer ? '版本较新' : core && p.overall === 'fix' ? '需更新' : text;
+  // 更新说明、要先更新主程序的情况
+  const pn = [];
+  if (core && p.overall === 'update') pn.push('将更换为 ' + p.version + '（与主程序版本相同）');
+  else if (p.overall === 'update' && p.version) pn.push('新版本 ' + p.version + (p.date ? '（' + p.date + '）' : '') + (p.notes.length ? '：' + p.notes.join('；') : ''));
+  if (p.needApp) pn.push('新版本 ' + p.needApp.version + ' 需要主程序 ' + p.needApp.coreMin + ' 或更高版本，请先在「设置」中更新主程序');
+  if (p.coreNewer) pn.push('游戏中的核心模组比主程序（' + p.version + '）新，请先在「设置」中更新主程序');
+  $('.pn', d).replaceChildren(...pn.map((s) => el('div', '', s)));
   $('.pw', d).textContent = (p.what || []).join('；');
   $('.chips', d).replaceChildren(...p.parts.map(partChip));
   $('.meta', d).textContent = p.evidence ? '验证：' + p.evidence : ''; $('.meta', d).title = $('.meta', d).textContent;
   const go = $('.go', d), un = $('.un', d), blocked = (plug?.running || 'off') !== 'off', bad = !!plug?.unsupported;
-  go.hidden = !p.canInstall; go.textContent = p.overall === 'none' ? '安装' : core ? '更新' : '修复'; go.className = 'small go' + (p.overall === 'none' ? ' primary' : '');
+  go.hidden = !p.canInstall; go.textContent = p.overall === 'none' ? '安装' : core || p.overall === 'update' ? '更新' : '修复'; go.className = 'small go' + (p.overall === 'none' ? ' primary' : '');
   un.hidden = !p.canUninstall; go.disabled = blocked || bad; un.disabled = blocked;
   go.title = un.title = blocked ? plug.runMessage : '';
   if (bad) go.title = plug.unsupported;
@@ -895,7 +907,14 @@ async function pluginAi(d, enabled) {
 function renderPlugins() {
   const box = $('#plugs'), w = $('#p-warn'), g = curGame();
   $('#p-where').textContent = g ? '安装到「' + g.name + '」（' + (g.type === 'server' ? '服务器' : '单人 / 局域网') + '）。安装后需重启' + (g.type === 'server' ? '服务器' : '游戏') + '才生效；「给 AI 使用」开关在下次启动托管时生效。' : '安装到「连接配置」中选择的游戏。';
+  const all = $('#p-all'), rm = $('#p-remove-all');
+  all.hidden = rm.hidden = true;
   if (!plug) { w.hidden = true; return emptyIn(box, plugErr || '读取中…'); }
+  $('#p-where').textContent += plug.manifestAt ? '插件版本信息检查于 ' + when(plug.manifestAt) + '。' : '尚未读取到插件的更新信息，按主程序自带的版本显示。';
+  const pending = [plug.core, ...plug.plugins].filter((p) => p.canInstall && (p === plug.core || p.overall !== 'none') && p.overall !== 'ok');
+  const running = (plug.running || 'off') !== 'off';
+  all.hidden = !pending.length; all.disabled = running || !!plug.unsupported; all.title = running ? plug.runMessage : '';
+  rm.hidden = plug.core.overall === 'none'; rm.disabled = running; rm.title = running ? plug.runMessage : '移走核心模组、所有适配和 mcbot 的配置；被适配的模组本体保留';
   const busy = (plug.running || 'off') !== 'off';
   w.hidden = !plug.unsupported && !busy && plug.type !== 'server';
   w.textContent = plug.unsupported ? plug.unsupported + '。此游戏无法安装插件。' : busy ? plug.runMessage + '。'
@@ -903,11 +922,14 @@ function renderPlugins() {
   keyed(box, [plug.core, ...plug.plugins], (p) => p.id, plugCard, updatePlug);
 }
 $('#p-refresh').onclick = loadPlugins;
+$('#p-all').onclick = () => pluginAction({ id: '', name: '全部更新' }, 'update-all');
+$('#p-remove-all').onclick = () => pluginAction({ id: '', name: '从此游戏移除 mcbot' }, 'remove-all');
 
 const STEP = {
-  download: (s) => ['dl', '下载', s.file + '（' + s.sizeText + '，来自 ' + s.source + (s.license ? '，许可证 ' + s.license : '') + '）'],
-  add: (s) => ['add', '复制到 mods', s.file + '（' + (s.from === 'package' ? '安装包自带' : '已下载') + '）'],
+  download: (s) => ['dl', '下载', s.file + '（' + (s.sizeText ? s.sizeText + '，' : '') + '来自 ' + s.source + (s.license ? '，许可证 ' + s.license : '') + '）'],
+  add: (s) => ['add', '复制到 mods', s.file + '（' + (s.from === 'package' ? '本地构建' : '已下载') + '）'],
   remove: (s) => ['rm', '移到备份', s.file + '（' + s.why + '）'],
+  'remove-dir': (s) => ['rm', '移到备份', s.file + '/（' + s.why + '）'],
   config: (s) => ['cf', '修改配置', s.file + '：' + (s.set ? '启用 ' + Object.entries(s.set).map(([m, v]) => m + ' ' + v).join('、') : '移除 ' + s.unset.join('、'))],
 };
 let dlgTimer = 0, dlgRun = null;
@@ -915,8 +937,9 @@ function closeDlg() { clearInterval(dlgTimer); dlgRun = null; $('#p-dlg').hidden
 async function pluginAction(p, action) {
   const dir = gameDir, r = await post('/api/plugins/plan', { dir, id: p.id, action });
   if (!r.ok) return showDlg(p.name, [], [], r.error, true);
-  if (r.nothing) return showDlg(p.name, [], [], '已安装，无需修改', false), loadPlugins();
-  showDlg((action === 'install' ? (p.overall === 'none' ? '安装 ' : '修复 ') : '卸载 ') + p.name, r.steps, r.notes, '', false, async () => {
+  if (r.nothing) return showDlg(r.name || p.name, [], [], action === 'remove-all' ? '此游戏中没有 mcbot 的文件' : '已是最新，无需修改', false), loadPlugins();
+  const verb = action === 'install' ? (p.overall === 'none' ? '安装 ' : p.overall === 'update' || p.kind === 'core' ? '更新 ' : '修复 ') : action === 'uninstall' ? '卸载 ' : '';
+  showDlg(verb + (r.name || p.name), r.steps, r.notes, '', false, async () => {
     const a = await post('/api/plugins/apply', { dir, id: p.id, action });
     if (!a.ok) return dlgDone({ ok: false, error: a.error });
     $('#p-ok').disabled = true; $('#p-cancel').hidden = true; $('#p-msg').textContent = '执行中…'; $('#p-msg').className = 'msg';
@@ -1199,13 +1222,13 @@ setPane(store.get('mcbot.pane', 'conn'));
 /** 标签上的小点：连接配置看选中的游戏能不能用，灵魂设置看有没有人设。 */
 function tabDots() {
   const g = curGame(), c = $('#t-conn'), s = $('#t-soul');
-  c.className = 'tdot ' + (!g ? (gameDir && !gamesLoaded ? '' : 'warn') : g.core === 'missing' ? 'err' : g.core === 'different' || !g.hasConnection ? 'warn' : g.online ? 'ok' : '');
+  c.className = 'tdot ' + (!g ? (gameDir && !gamesLoaded ? '' : 'warn') : g.core === 'missing' ? 'err' : g.core !== 'ok' || !g.hasConnection ? 'warn' : g.online ? 'ok' : '');
   c.title = !g ? '尚未选择游戏' : gameNote(g)[1];
   s.className = 'tdot ' + (persona.loaded && !persona.exists && !$('#s-persona').value.trim() ? 'warn' : '');
   s.title = s.className.includes('warn') ? '尚未填写人设' : '';
   const pd = $('#t-plug'), core = plug?.core?.overall;
-  pd.className = 'tdot ' + (!plug ? '' : core === 'none' ? 'err' : core === 'fix' || plug.plugins.some((x) => x.overall === 'fix') ? 'warn' : '');
-  pd.title = !plug ? '' : core === 'none' ? '未安装核心模组' : core === 'fix' ? '核心模组需更新' : pd.className.includes('warn') ? '部分插件需修复' : '';
+  pd.className = 'tdot ' + (!plug ? '' : core === 'none' ? 'err' : core !== 'ok' || plug.plugins.some((x) => x.overall === 'fix' || x.overall === 'update') ? 'warn' : '');
+  pd.title = !plug ? '' : core === 'none' ? '未安装核心模组' : plug.core.coreNewer ? '核心模组比主程序新' : core !== 'ok' ? '核心模组需更新' : pd.className.includes('warn') ? '部分插件需更新或修复' : '';
 }
 // 分段选择的滑块
 function placeThumb(seg) { const on = $('button.on', seg), t = $('.thumb', seg); if (!on || !on.offsetWidth) return; t.style.left = on.offsetLeft + 'px'; t.style.width = on.offsetWidth + 'px'; }
