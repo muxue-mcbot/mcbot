@@ -12,6 +12,7 @@ import { fileURLToPath } from 'node:url';
 import { respawnIfDead } from './server-body-control.mjs';
 import { RECONNECT_EXIT } from './companion.mjs';
 import { runtimeDir } from './paths.mjs';
+import { inspectGame, referenceCore } from './webui-games.mjs';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const AGENTS = ['claude', 'codex', 'dsh'];
@@ -51,8 +52,29 @@ const intIn = (value, lo, hi, name) => {
 };
 const full = (p) => path.resolve(p);
 
+/**
+ * 启动托管前看游戏 mods 里的核心模组（读 jar 里的 neoforge.mods.toml，判断同 WebUI 的 inspectGame）：
+ * 版本和主程序不一样、或装了不止一个，就不启动（block）；版本相同但和本地构建字节不同、或没装，只提示（warn）。
+ * 连接文件不在 <游戏目录>/config/mcbot-server-control/ 下时找不到游戏目录，不检查。
+ */
+export function checkGameCore(connectionPath, { root = ROOT, ref = referenceCore(root) } = {}) {
+  const control = path.dirname(connectionPath);
+  if (path.basename(control).toLowerCase() !== 'mcbot-server-control' || path.basename(path.dirname(control)).toLowerCase() !== 'config') return {};
+  const dir = path.dirname(path.dirname(control));
+  const game = inspectGame({ dir }, ref, () => ({}));
+  const have = game.coreVersion || '无法读取';
+  let jars = 0;
+  try { jars = fs.readdirSync(path.join(dir, 'mods')).filter((n) => /^mcbot-server-control-.*\.jar$/i.test(n)).length; } catch { /* 没有 mods */ }
+  if (game.core === 'old') return { block: `游戏中的核心模组（${have}）比主程序（${ref.version}）旧：先关游戏，到插件页更新` };
+  if (game.core === 'newer') return { block: `游戏中的核心模组（${have}）比主程序（${ref.version}）新：请先更新主程序，或先关游戏，到插件页更新` };
+  if (game.core === 'different' && jars > 1) return { block: `游戏的 mods 中有 ${jars} 个核心模组：先关游戏，到插件页更新` };
+  if (game.core === 'different') return { warn: `游戏中的核心模组版本与主程序相同（${have}），但与本机构建的文件不同；如有问题，请关闭游戏后到插件页更新` };
+  if (game.core === 'missing') return { warn: '游戏的 mods 中未找到核心模组：请先关闭游戏，到插件页安装' };
+  return {};
+}
+
 /** 读连接文件、检查参数、写 runtime/server-play/<角色>/mcp.json；返回驱动器的启动参数。不读也不写令牌以外的凭据，令牌不进 mcp.json。 */
-export function prepareServerPlay(options, { root = ROOT, env = process.env, execPath = process.execPath } = {}) {
+export function prepareServerPlay(options, { root = ROOT, env = process.env, execPath = process.execPath, coreCheck = checkGameCore } = {}) {
   if (!options['connection-file']) throw new Error('请提供服务端生成的 config/mcbot-server-control/connection.json（--connection-file）');
   const connectionPath = full(options['connection-file']);
   if (!fs.existsSync(connectionPath) || !fs.statSync(connectionPath).isFile()) throw new Error('请提供服务端生成的 config/mcbot-server-control/connection.json');
@@ -67,6 +89,8 @@ export function prepareServerPlay(options, { root = ROOT, env = process.env, exe
     || endpoint.username || endpoint.password || endpoint.search || endpoint.hash) {
     throw new Error('当前仅支持本机 http 控制口 /v2；远程部署需后续独立验收');
   }
+  const core = coreCheck(connectionPath, { root });
+  if (core.block) throw new Error(core.block);
   const agent = oneOf(options.agent, AGENTS, 'agent', 'claude');
   const effort = oneOf(options.effort, EFFORTS, 'effort', 'low');
   const guard = oneOf(options.guard, ON_OFF, 'guard', 'on');
@@ -132,7 +156,7 @@ export function prepareServerPlay(options, { root = ROOT, env = process.env, exe
   for (const [flag, value] of Object.entries(session)) if (value !== undefined && value >= 0) driverArgs.push(`--${flag}`, String(value));
   if (options.headless) driverArgs.push('--headless');
   if (options.wait) driverArgs.push('--reconnect');
-  const lines = [`ServerBody 配置：${configFile}`, `角色：${name}；世界：${worldId}；Agent：${agent}；思考：${effort}`,
+  const lines = [...(core.warn ? [`注意：${core.warn}`] : []), `ServerBody 配置：${configFile}`, `角色：${name}；世界：${worldId}；Agent：${agent}；思考：${effort}`,
     ...(disabledPlugins.length ? [`对 AI 关闭的插件：${disabledPlugins.join('、')}（游戏中照常可用）`] : []),
     `默认使用本机现有的 Agent 登录。停止托管：在 WebUI 中点击「停止托管」（从仓库运行时也可使用 stop-companion.ps1 ${name}），角色将保留`,
     `叫停后，请使用角色名或昵称明确提出新任务，例如：${nickname}，查询状态。`];
@@ -173,9 +197,13 @@ function runDriver(prepared, respawned) {
 
 /** --wait：等到能接管再启动托管，断开了回去等；返回最后的退出码。 */
 export async function supervise(options, { runtime = process.env.COMPANION_RUNTIME_DIR ? path.resolve(process.env.COMPANION_RUNTIME_DIR) : runtimeDir(),
-  check = readiness, prepare = prepareServerPlay, run = runDriver, sleep = (ms) => new Promise((r) => setTimeout(r, ms)), log = console.log, now = Date.now, pollMs = 2000 } = {}) {
+  check = readiness, prepare = prepareServerPlay, run = runDriver, sleep = (ms) => new Promise((r) => setTimeout(r, ms)), log = console.log, now = Date.now, pollMs = 2000,
+  coreCheck = checkGameCore } = {}) {
   if (!options['connection-file']) throw new Error('请提供游戏目录中的 config/mcbot-server-control/connection.json（--connection-file）');
   const connectionPath = full(options['connection-file']);
+  // 核心版本不对就别开始等世界：每次连上时 prepare 还会再查一次（等待期间可能换了 jar）
+  const core = coreCheck(connectionPath);
+  if (core.block) throw new Error(core.block);
   const expected = options.username || '';
   if (expected && !/^[A-Za-z0-9_]{1,16}$/.test(expected)) throw new Error('--username 必须是 1～16 位英文、数字或下划线');
   const stopFile = expected ? path.join(runtime, `companion-${expected}.stop`) : '';
