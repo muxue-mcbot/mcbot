@@ -26,7 +26,7 @@ function javaSources(dir) {
   return out.join('\n');
 }
 
-function gradleProperty(project, key) {
+export function gradleProperty(project, key) {
   const file = path.join(root, project, 'gradle.properties');
   if (!fs.existsSync(file)) return undefined;
   const line = fs.readFileSync(file, 'utf8').split(/\r?\n/).find(l => l.startsWith(`${key}=`));

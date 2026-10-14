@@ -103,18 +103,26 @@ node scripts/webui.mjs --open      # 默认端口 8770，--port 换端口，--ru
   - **先开托管还是先开世界都行**（10-10 实测反馈：先开托管再开局域网进不来、改名没生效、死了不复活）：`--wait` 时启动脚本每 2 秒重新读连接文件，用 `respawn` 探一次能不能接管——服务端在接管前检查单人有没有开局域网、是不是暂停，死了的角色顺便原生复活，活着的回 `INVALID_ARGUMENT`。没开世界、没开局域网、暂停、世界里的名字和配置不一样时页面显示「等待中：…」，「停止托管」也能停（启动脚本看 `companion-<名字>.stop`）。能接管了才启动驱动器；驱动器带 `--reconnect`，身体断开（游戏关了、退出世界、角色死了，运行端发 `disconnect` 事件）就撤销（不让角色下线）并以退出码 75 退出，启动脚本回去等，能连上时重新启动驱动器（会话照常接着，复活过的告诉 Agent 自己死过）。一连上就断的按次数退避，最多 60 秒一次；别的退出码（停止、崩溃）直接结束。测试用环境变量 `MCBOT_WEBUI_LAUNCH_CMD`（JSON 数组）替换启动命令。
 - 配置页只存路径和参数，不存凭据：Agent 用账号目录里已有的登录；档案里出现 `apiKey` 这类不认识的字段会被拒绝。连接文件只在本机读出角色、世界和地址，控制令牌不回传给网页。能从网页启动托管，就等于拿到令牌的人能用你的账号开托管，所以令牌地址不要发给别人。
 
-## 打包绿色版
+## 打包安装包
 
 ```pwsh
-node scripts/package.mjs              # 输出到 output/package：mcbot-<版本>-win-x64 目录和同名 zip
-node scripts/package.mjs --no-zip     # 只出目录；--skip-build 不重新编译运行端；--node 指定要打进去的 node.exe
+node scripts/package.mjs                  # 输出到 output/package：程序目录 mcbot-<版本>-win-x64 和安装包 mcbot-setup-<版本>.exe
+node scripts/package.mjs --no-installer   # 只摆程序目录；--skip-build 不重新编译运行端；--node 指定要打进去的 node.exe；--iscc 指定 ISCC.exe
+node scripts/set-version.mjs app 0.0.2    # 改主程序版本（运行端 package.json 和 lock、核心 mod_version、compat.json 核心 jar 名）
+node scripts/set-version.mjs iron_furnaces 0.0.3 --core-min 0.0.2   # 只改一个插件；--core-min 同时改它要求的核心最低版本
+node scripts/release.mjs --github-org <组织> --github-repo <仓库> --notes <更新说明.json>   # 在 output/release 摆出 app/、core/、plugins/ 和 index.json，不上传
 ```
 
-- 包里有：便携 Node（`node/`，带 Node 的 LICENSE）、运行端（`client-runtime/` 的 dist 和运行依赖，加上 `scripts/` 也按文件读的 `tool-registry.json`、`player-stop.json`、`memory-limits.json`、`host-timing.json`，清单是 `package.mjs` 的 `RUNTIME_FILES`，新加共用的 JSON 要写进去）、WebUI 和托管脚本（`scripts/`，从 `webui.mjs`、`start-server-play.mjs`、`companion.mjs` 按 import 自动找）、我们的 jar（`mods/`，按 `compat.json`）、`compat.json`、`LICENSE`、`NOTICE`、`CLAUDE.md`、`使用说明.txt` 和双击用的 `启动 mcbot.cmd`（用自带的 Node 开 WebUI）。不带旧的 `mcp-server`、源码和测试。
+- 版本号（见[更新方式设计](update_design.md)第二节）：主程序和核心同一个版本，以 `client-runtime/package.json` 为准；每个插件有自己的版本，`compat.json` 里写 `coreMin`，插件的 `gradle.properties` 里 `core_min` 同值，构建时写进 `neoforge.mods.toml` 对核心的要求；插件 `build.gradle` 按核心的 `mod_version` 找核心 jar。比较按段比较数字（`scripts/version.mjs`）。`check-compat.mjs` 核对这几处，改版本后要重新 gradle 构建（核心先）。
+- 程序目录里有：便携 Node（`node/`，带 Node 的 LICENSE）、运行端（`client-runtime/` 的 dist 和运行依赖，加上 `scripts/` 也按文件读的 `tool-registry.json`、`player-stop.json`、`memory-limits.json`、`host-timing.json`，清单是 `package.mjs` 的 `RUNTIME_FILES`，新加共用的 JSON 要写进去）、WebUI 和托管脚本（`scripts/`，从 `webui.mjs`、`start-server-play.mjs`、`companion.mjs` 按 import 自动找）、`compat.json`、`LICENSE`、`NOTICE`、`CLAUDE.md`、`使用说明.txt` 和安装标记 `install.json`（`{"app":"mcbot","version":…}`；有它就是安装版，数据放 `%LOCALAPPDATA%mcbot`）。不带模组 jar（核心也不带，插件页联网下载，jar 由发布脚本摆出）、用户数据、旧的 `mcp-server`、源码和测试。
+- 打包前会清空 `output/package/mcbot-<版本>-win-x64`；这个目录里有 `runtime/` 或 `memory/`（像是用户数据），或者它是仓库本身、仓库的上级，就拒绝打包。
+- 安装包用 Inno Setup 6（`installer/mcbot.iss`，带 BOM 的 UTF-8；本机装在 `C:Program Files (x86)Inno Setup 6`）：按用户装到 `%LOCALAPPDATA%Programsmcbot`，不要管理员权限；开始菜单和桌面放「mcbot」快捷方式（`node
+ode.exe scriptswebui.mjs --open`）；覆盖安装先删掉旧的 `scripts`、`client-runtime`、`node`，程序目录的 node 还开着就由 Restart Manager 关掉；装完可勾选马上打开，`/SILENT` 时自动重新打开 WebUI。卸载前结束从程序目录启动的 node（有界面时先问）；卸载时问是否同时删除 `%LOCALAPPDATA%mcbot`，默认不删，静默卸载一律不删；游戏目录都不碰。
+- 发布（[更新方式设计](update_design.md)第四、五节）：`release.mjs` 先跑 `check-compat`，读打好的安装包和 gradle 构建出的 jar，和 `output/release/index.json`（上一份）比：版本没变的部分整段沿用、不复制文件（这次构建的大小和已发布的不同会提醒先提版本）；版本变了的要比上一份新，要在 `--notes` 的 JSON（`{"app":[…],"plugins":{"<id>":[…]},"notices":[…]}`）里写更新说明；`plugins` 从 `compat.json` 生成（去掉 `project`、`jar`、`kind`）。先复制新文件，最后写 `index.json`；发布目录里同名文件大小不同就停下。只生成，上传前要先问用户。
 - Node 用官方 zip 版：解压到 `runtime/node-dist/node-v<版本>-win-x64`（被 git 忽略），脚本默认用版本最新的那个；安装版 Node 没有 LICENSE，会拒绝。10-10 用的是 24.21.0。
-- 不联网：jar 要先用 gradle 构建好；运行依赖复制 `client-runtime/node_modules` 再 `npm prune --omit=dev`；打包前先跑 `compat.json` 核对。
-- 10-10 演练（不开模型）：目录约 105 MB；复制到干净目录、PATH 里去掉系统的 Node 后，自带 Node 能开 WebUI（页面、配置列表、连接文件检查都正常），`start-server-play.mjs --prepare-only` 生成配置，用生成的 `mcp.json` 启动运行端连隔离服，`initialize`、65 个工具、`get-status` 都正常。还没测：从 WebUI 真正启动托管（要开模型）、关掉 WebUI 后托管是否继续、双击 cmd 自动开浏览器。
-- 10-10 真实演练：zip 解压到带中文和空格的目录，像双击一样启动 `启动 mcbot.cmd`，自带 Node 开 WebUI；dsh（桌面版，账号目录 `~/.dsh`，DeepSeek-V41-Flash）在用户的启动器实例单人开局域网接管，9 分钟里打招呼、跟随、砍树、捡弓护卫、低血撤退都正常，关游戏后托管自己结束。演练中修了：日文系统的 tar 按 CP932 写 zip 文件名，`启动 mcbot.cmd`、`使用说明.txt` 变问号（改成 `--options hdrcharset=UTF-8`，并固定用 System32 的 tar）。还没测：关掉 WebUI 后托管是否继续。
+- 不联网：运行依赖复制 `client-runtime/node_modules` 再 `npm prune --omit=dev`；打包前先跑 `compat.json` 核对。
+- 10-14 演练（0.0.1，安装包 25.5 MB）：在临时目录 `/SILENT` 安装，装完自动开 WebUI；WebUI 开着再装一次，旧 node 被关掉、装完重新打开、旧脚本被删、程序目录里别的目录保留；WebUI 开着时 `/SILENT` 卸载，node 被结束，程序文件、快捷方式、卸载登记都删掉，数据目录保留。还没测：有界面的安装和卸载对话框（删数据的提问）、干净 Windows 上安装、未签名时 SmartScreen 的提示。
+- 10-10 的绿色版演练（zip 解压到带中文和空格的目录、dsh 在单人局域网接管 9 分钟）记在 git 历史里；那时修的 zip 文件名编码问题，安装包不再打 zip，不涉及。
 
 ## 单人模式实测
 
