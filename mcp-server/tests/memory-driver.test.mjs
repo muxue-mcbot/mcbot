@@ -107,10 +107,11 @@ for (const agent of ['claude', 'codex', 'dsh']) test(`ServerBody 记忆/${agent}
     // 启动时接不上旧会话：交接单跟启动轮一起送
     const startup = await waitFor(() => d.turns().find((r) => r.text.includes('【托管模式启动】')), '启动轮');
     assert.match(startup.text, /【交接单】/);
-    assert.match(startup.text, /最近的任务：\d\d:\d\d gather-resources \{"item":"minecraft:oak_log","count":64\}；\d\d:\d\d 取消了：捡到 40 个 oak_log，被打断/, '只看任务类工具，带结果');
+    // 记录从十分钟前开始：零点刚过时是昨天的，交接单会带上日期
+    assert.match(startup.text, /最近的任务：(?:\d{4}-\d\d-\d\d )?\d\d:\d\d gather-resources \{"item":"minecraft:oak_log","count":64\}；(?:\d{4}-\d\d-\d\d )?\d\d:\d\d 取消了：捡到 40 个 oak_log，被打断/, '只看任务类工具，带结果');
     assert.doesNotMatch(startup.text, /discover-resources/, '查询类不算任务');
     assert.match(startup.text, /陪伴：跟着 tester，保护开着/);
-    assert.match(startup.text, /\d\d:\d\d tester: 小克帮我砍 64 个原木\n\s+\d\d:\d\d 你: 好，这就去砍/);
+    assert.match(startup.text, /(?:\d{4}-\d\d-\d\d )?\d\d:\d\d tester: 小克帮我砍 64 个原木\n\s+(?:\d{4}-\d\d-\d\d )?\d\d:\d\d 你: 好，这就去砍/);
     assert.doesNotMatch(startup.text, /别的世界的话/, '交接单只拿这个世界的记录');
     assert.match(startup.text, /本轮只确认准备好并结束/);
     // ② 常驻档案在系统提示里（Claude：--append-system-prompt；Codex：developerInstructions；dsh 的补丁见下面的单元测试）
