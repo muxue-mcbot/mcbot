@@ -161,15 +161,19 @@ export function buildPackage(opts) {
   const scripts = scriptClosure(path.join(ROOT, 'scripts'), ENTRIES);
   for (const rel of [...scripts, ...ASSETS]) copy(path.join(ROOT, 'scripts', rel), path.join(stage, 'scripts', rel));
   for (const f of TOP_FILES) copy(path.join(ROOT, f), path.join(stage, f));
-  fs.writeFileSync(path.join(stage, INSTALL_MARKER), JSON.stringify({ app: 'mcbot', version }, null, 2) + '\n');
   fs.writeFileSync(path.join(stage, '使用说明.txt'), '﻿' + readme(compat, version));
 
   let installer = '';
   if (iscc) {
     installer = path.join(opts.out, `mcbot-setup-${version}.exe`);
     fs.rmSync(installer, { force: true });
-    const r = spawnSync(iscc, ['/Q', `/DAppVersion=${version}`, `/DStageDir=${stage}`, `/O${opts.out}`, ISS], { stdio: 'inherit', windowsHide: true });
-    if (r.status !== 0 || !fs.existsSync(installer)) throw new Error(`Inno Setup 打包失败（退出码 ${r.status}）`);
+    // 安装标记只进安装包，不放在中转目录：从中转目录启动 WebUI 时仍按开发环境处理，不会读写安装版的数据目录
+    const marker = path.join(opts.out, `${name}-${INSTALL_MARKER}`);
+    fs.writeFileSync(marker, JSON.stringify({ app: 'mcbot', version }, null, 2) + '\n');
+    try {
+      const r = spawnSync(iscc, ['/Q', `/DAppVersion=${version}`, `/DStageDir=${stage}`, `/DMarkerFile=${marker}`, `/O${opts.out}`, ISS], { stdio: 'inherit', windowsHide: true });
+      if (r.status !== 0 || !fs.existsSync(installer)) throw new Error(`Inno Setup 打包失败（退出码 ${r.status}）`);
+    } finally { fs.rmSync(marker, { force: true }); }
   }
   const size = (p) => { let n = 0; const walk = (d) => { for (const e of fs.readdirSync(d, { withFileTypes: true })) { const q = path.join(d, e.name); if (e.isDirectory()) walk(q); else n += fs.statSync(q).size; } }; walk(p); return n; };
   return { name, stage, installer, version, node: nodeVersion, scripts, stageBytes: size(stage), installerBytes: installer ? fs.statSync(installer).size : 0 };

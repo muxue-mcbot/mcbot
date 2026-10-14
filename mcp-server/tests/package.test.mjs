@@ -42,6 +42,9 @@ test('the installer script installs per user, keeps data in %LOCALAPPDATA%\\mcbo
   assert.match(iss, /^CloseApplications=yes$/m);
   assert.match(iss, /Result := ExpandConstant\('\{localappdata\}\\mcbot'\)/);
   assert.match(iss, /not UninstallSilent/, '静默卸载不删数据');
+  assert.match(iss, /Source: "\{#MarkerFile\}"; DestDir: "\{app\}"; DestName: "install\.json"/, '安装标记只从安装包装进程序目录');
+  assert.match(iss, /SELECT ProcessId, ExecutablePath, CommandLine FROM Win32_Process/, '自定义 Node 跑程序目录脚本的进程也要认出来');
+  assert.match(iss, /function PrepareToInstall\(/);
   assert.match(iss, /MB_YESNO or MB_DEFBUTTON2/, '默认按钮是“否”');
   assert.doesNotMatch(iss.match(/\[Run\][^[]*/)[0], /skipifsilent/, '静默安装装完也要重新打开 WebUI');
 });

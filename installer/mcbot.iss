@@ -1,5 +1,6 @@
-﻿; mcbot 安装包。由 scripts/package.mjs 调用：ISCC /DAppVersion=0.0.1 /DStageDir=<摆好的程序目录> /O<输出目录> installer\mcbot.iss
-; 按用户安装到 %LOCALAPPDATA%\Programs\mcbot，不要管理员权限。用户数据在 %LOCALAPPDATA%\mcbot（程序目录里的 install.json 让 WebUI 认出是安装版），
+﻿; mcbot 安装包。由 scripts/package.mjs 调用：ISCC /DAppVersion=0.0.1 /DStageDir=<摆好的程序目录> /DMarkerFile=<安装标记> /O<输出目录> installer\mcbot.iss
+; 按用户安装到 %LOCALAPPDATA%\Programs\mcbot，不要管理员权限。用户数据在 %LOCALAPPDATA%\mcbot（程序目录里的 install.json 让 WebUI 认出是安装版；
+; 它不放在摆好的程序目录里，单独传进来，免得从中转目录启动 WebUI 也被当成安装版），
 ; 覆盖安装只换程序文件；卸载时问一句是否删数据，默认不删，静默卸载一律不删。游戏目录（mods、config、mcbot-backups）安装和卸载都不碰。
 ; 本文件要保存为带 BOM 的 UTF-8，Inno Setup 才按 UTF-8 读中文。
 
@@ -8,6 +9,9 @@
 #endif
 #ifndef StageDir
   #error 缺少 /DStageDir
+#endif
+#ifndef MarkerFile
+  #error 缺少 /DMarkerFile
 #endif
 
 #define AppExe "{app}\node\node.exe"
@@ -32,7 +36,7 @@ SolidCompression=yes
 WizardStyle=modern
 ArchitecturesAllowed=x64compatible
 ArchitecturesInstallIn64BitMode=x64compatible
-; 程序目录里的 node.exe 还开着（WebUI、托管）就提示关闭；装完由下面的 [Run] 重新打开 WebUI
+; mcbot 自己的 node 进程由 [Code] 的 PrepareToInstall 先问再结束；其余占用程序文件的进程交给 Restart Manager 提示关闭。装完由 [Run] 重新打开 WebUI
 CloseApplications=yes
 RestartApplications=no
 UninstallDisplayName=mcbot
@@ -49,6 +53,7 @@ Type: filesandordirs; Name: "{app}\node"
 
 [Files]
 Source: "{#StageDir}\*"; DestDir: "{app}"; Flags: recursesubdirs createallsubdirs ignoreversion
+Source: "{#MarkerFile}"; DestDir: "{app}"; DestName: "install.json"; Flags: ignoreversion
 
 [Icons]
 Name: "{autoprograms}\mcbot"; Filename: "{#AppExe}"; Parameters: {#AppParams}; WorkingDir: "{app}"; Comment: "打开 mcbot 的 WebUI"
@@ -64,24 +69,35 @@ begin
   Result := ExpandConstant('{localappdata}\mcbot');
 end;
 
-// 从程序目录的 node.exe 跑起来的进程（WebUI、托管）。卸载程序不像安装时那样自动关它们，不关的话 node.exe 删不掉。
+// 属于这份 mcbot 的 node 进程（WebUI、托管的驱动器和运行端）：用程序目录的 node\node.exe 跑的，
+// 或者用别的 Node（WebUI 配置里的「Node 路径」）跑程序目录里脚本的（命令行里有程序目录）。
+// 卸载程序不像安装时那样自动关进程，自定义 Node 的进程安装时 Restart Manager 也看不到；不关的话旧代码继续跑，文件和目录删不掉。
 // Kill 为 True 时结束它们；返回找到的个数。查不了（WMI 不可用）就当没有。
 function AppProcesses(Kill: Boolean): Integer;
 var
   Locator, Service, Procs, P: Variant;
   I: Integer;
-  Exe: String;
+  Exe, Dir, Cmd: String;
+  Mine: Boolean;
 begin
   Result := 0;
   Exe := ExpandConstant('{app}\node\node.exe');
+  Dir := Lowercase(AddBackslash(ExpandConstant('{app}')));
   try
     Locator := CreateOleObject('WbemScripting.SWbemLocator');
     Service := Locator.ConnectServer('.', 'root\CIMV2');
-    Procs := Service.ExecQuery('SELECT ProcessId, ExecutablePath FROM Win32_Process WHERE Name = ''node.exe''');
+    Procs := Service.ExecQuery('SELECT ProcessId, ExecutablePath, CommandLine FROM Win32_Process WHERE Name = ''node.exe''');
     for I := 0 to Procs.Count - 1 do
     begin
       P := Procs.ItemIndex(I);
-      if (not VarIsNull(P.ExecutablePath)) and (CompareText(P.ExecutablePath, Exe) = 0) then
+      Mine := False;
+      if not VarIsNull(P.ExecutablePath) then Mine := CompareText(P.ExecutablePath, Exe) = 0;
+      if (not Mine) and (not VarIsNull(P.CommandLine)) then
+      begin
+        Cmd := P.CommandLine;
+        Mine := Pos(Dir, Lowercase(Cmd)) > 0;
+      end;
+      if Mine then
       begin
         Result := Result + 1;
         if Kill then P.Terminate();
@@ -90,6 +106,20 @@ begin
   except
     Log('查找运行中的 mcbot 失败：' + GetExceptionMessage);
   end;
+end;
+
+// 覆盖安装前：程序目录还有进程在跑就先问（静默安装直接结束；WebUI 自动更新前已确认没有托管、自己也退出了）
+function PrepareToInstall(var NeedsRestart: Boolean): String;
+begin
+  Result := '';
+  if AppProcesses(False) = 0 then Exit;
+  if (not WizardSilent) and (MsgBox('mcbot 还在运行（WebUI 或正在托管的 Bot）。继续安装会结束它们。' + #13#10 + '要继续吗？', mbConfirmation, MB_YESNO) <> IDYES) then
+  begin
+    Result := '已取消：mcbot 还在运行。请先停止托管、关闭 WebUI 后再安装。';
+    Exit;
+  end;
+  AppProcesses(True);
+  Sleep(1500);
 end;
 
 var
