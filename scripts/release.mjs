@@ -8,6 +8,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { isDeepStrictEqual } from 'node:util';
 import { loadCompat, checkCompat, gradleProperty } from './check-compat.mjs';
 import { parseVersion, compareVersions, readAppVersion } from './version.mjs';
 
@@ -94,6 +95,8 @@ export function planRelease({ compat, app, plugins, prev, notes = {}, date, org,
       files.push({ from: built.file, to: file, size: built.size });
     } else {
       const old = prev.plugins[id];
+      // 已发布的 jar 里锁着被适配模组的版本；requires 变了而插件版本没提，清单就会把旧 jar 和新的下载地址配在一起
+      if (!isDeepStrictEqual(old.requires, rest.requires)) throw new Error(`${id} 被适配模组的版本或下载信息变了，插件版本却还是 ${old.version}：先用 set-version.mjs 提插件版本再发布`);
       pluginEntries[id] = { version: old.version, date: old.date, notes: old.notes, file: old.file, tag: old.tag, size: old.size, ...rest, coreMin: old.coreMin };
       if (old.coreMin !== adapter.coreMin) warnings.push(`${id} 版本没变，coreMin 却从 ${old.coreMin} 改成了 ${adapter.coreMin}；已发布的 jar 里写的是旧值，清单照旧写 ${old.coreMin}`);
     }

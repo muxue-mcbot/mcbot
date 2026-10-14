@@ -57,6 +57,13 @@ test('unchanged parts are carried over; a newer part needs notes; an older versi
   assert.match(changed.warnings.join('\n'), /yes_steve_model 版本还是 0\.0\.1，但这次构建的文件大小（11）和已发布的（10）不同/);
   assert.match(changed.warnings.join('\n'), /核心版本还是 0\.0\.1，但这次构建的 jar 大小（101）/);
   assert.deepEqual(changed.files, [], '不覆盖已发布的文件');
+
+  const moved = structuredClone(compat);
+  moved.adapters.find((a) => a.id === 'iron_furnaces').requires[0].version = '9.9.9';
+  assert.throws(() => planRelease({ ...base, compat: moved, ...built('0.0.1'), prev, notes: {} }), /iron_furnaces 被适配模组的版本或下载信息变了，插件版本却还是 0\.0\.1/);
+  const renamed = structuredClone(compat);
+  renamed.adapters.find((a) => a.id === 'iron_furnaces').what = ['只改了说明'];
+  assert.deepEqual(planRelease({ ...base, compat: renamed, ...built('0.0.1'), prev, notes: {} }).index.plugins.iron_furnaces.what, ['只改了说明'], '说明类字段照 compat 更新');
 });
 
 test('the release folder gets new files first, then index.json; a published name with a different size stops it', () => {

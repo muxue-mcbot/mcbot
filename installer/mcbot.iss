@@ -92,21 +92,26 @@ begin
   end;
 end;
 
+var
+  KillApps: Boolean;
+
+// 这里只问，不结束进程：之后 Inno 自己还会问“确定要删除吗”，选否时 WebUI 和托管不该已经被关掉
 function InitializeUninstall(): Boolean;
 begin
   Result := True;
-  if AppProcesses(False) = 0 then Exit;
-  if (not UninstallSilent) and (MsgBox('mcbot 还在运行（WebUI 或正在托管的 Bot）。继续卸载会结束它们。' + #13#10 + '要继续吗？', mbConfirmation, MB_YESNO) <> IDYES) then
-  begin
+  KillApps := AppProcesses(False) > 0;
+  if KillApps and (not UninstallSilent) and (MsgBox('mcbot 还在运行（WebUI 或正在托管的 Bot）。继续卸载会结束它们。' + #13#10 + '要继续吗？', mbConfirmation, MB_YESNO) <> IDYES) then
     Result := False;
-    Exit;
-  end;
-  AppProcesses(True);
-  Sleep(1500);
 end;
 
 procedure CurUninstallStepChanged(CurUninstallStep: TUninstallStep);
 begin
+  // 确认卸载之后、删文件之前
+  if (CurUninstallStep = usUninstall) and KillApps then
+  begin
+    AppProcesses(True);
+    Sleep(1500);
+  end;
   if (CurUninstallStep = usPostUninstall) and (not UninstallSilent) and DirExists(DataDir()) then
   begin
     if MsgBox('同时删除 mcbot 的数据（人设、记忆、配置、下载缓存）？' + #13#10#13#10 +
