@@ -413,18 +413,19 @@ export function planPlugin(gameDir, id, action, { catalog = loadCatalog(), runti
 /** 下载一步：按 urls 顺序试，一个失败换下一个；我们的 jar 还要核对 mods.toml 里的 mod id 和版本。 */
 async function download(step, downloads, fetchImpl, progress) {
   const dest = path.join(downloads, step.file);
-  let error = '';
+  let error = '', mismatch = '';
   for (const url of step.urls) {
     try {
       await downloadFile(url, dest, step.size, { fetchImpl, progress });
-      if (step.ours && !jarDeclares(dest, step.modId, step.version)) { fs.rmSync(dest, { force: true }); throw new Error('文件内容与清单不符，已放弃使用'); }
+      if (step.ours && !jarDeclares(dest, step.modId, step.version)) { fs.rmSync(dest, { force: true }); mismatch = '文件内容与清单不符，已放弃使用'; continue; }
       return;
     } catch (e) {
       error = e.code && !e.message.includes('HTTP') ? `无法写入下载缓存（${e.code}）：请检查 ${downloads} 是否可写`
         : e.message.startsWith('fetch failed') ? (step.ours ? '无法连接 mcbot 更新服务器和 GitHub：需要联网才能安装模组' : '无法连接 Modrinth') : e.message;
     }
   }
-  throw new Error(`下载 ${step.file} 失败：${error}`);
+  // 有来源给了内容不对的文件时报这个，比后面某个来源连不上更说明问题
+  throw new Error(`下载 ${step.file} 失败：${mismatch || error}`);
 }
 
 const stamp = (d = new Date()) => d.toISOString().replace(/[-:]/g, '').replace('T', '-').slice(0, 15);

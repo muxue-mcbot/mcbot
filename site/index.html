@@ -1,0 +1,151 @@
+<!doctype html>
+<!-- 更新服务器首页。scripts/release.mjs 按 compat.json 填好双花括号占位后放到发布目录根上；版本、下载、公告、插件读同目录的 index.json。 -->
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>mcbot</title>
+<meta name="description" content="用本机的 AI Agent 在 Minecraft 里控制一个游戏伙伴">
+<style>
+:root {
+  --bg: #f6f7f4; --card: #ffffff; --text: #1d211c; --muted: #5d6659; --line: #dde2d8;
+  --accent: #3f7d3a; --accent-text: #ffffff; --warn-bg: #fff4dc; --warn-line: #e6c36a;
+  color-scheme: light;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #151814; --card: #1e221d; --text: #e7ebe3; --muted: #9ba597; --line: #30362e;
+    --accent: #6fb565; --accent-text: #0f140e; --warn-bg: #2e2914; --warn-line: #7a6626;
+    color-scheme: dark;
+  }
+}
+:root[data-theme="dark"] {
+  --bg: #151814; --card: #1e221d; --text: #e7ebe3; --muted: #9ba597; --line: #30362e;
+  --accent: #6fb565; --accent-text: #0f140e; --warn-bg: #2e2914; --warn-line: #7a6626;
+  color-scheme: dark;
+}
+* { box-sizing: border-box; }
+body { margin: 0; background: var(--bg); color: var(--text); font: 16px/1.65 system-ui, -apple-system, "Segoe UI", "Microsoft YaHei", sans-serif; }
+main { max-width: 760px; margin: 0 auto; padding: 40px 16px 56px; }
+h1 { font-size: 2.2rem; margin: 0; letter-spacing: .02em; }
+h2 { font-size: 1.15rem; margin: 0 0 12px; }
+.tag { display: inline-block; font-size: .8rem; padding: 1px 8px; border: 1px solid var(--line); border-radius: 999px; color: var(--muted); vertical-align: middle; margin-left: 8px; }
+.lead { margin: 8px 0 28px; color: var(--muted); }
+section { background: var(--card); border: 1px solid var(--line); border-radius: 12px; padding: 20px; margin: 0 0 16px; }
+.btn { display: inline-block; background: var(--accent); color: var(--accent-text); text-decoration: none; font-weight: 600; padding: 10px 20px; border-radius: 8px; }
+.btn:hover { filter: brightness(1.08); }
+.meta { color: var(--muted); font-size: .9rem; margin: 10px 0 0; }
+.meta a { color: inherit; }
+ul, ol { margin: 0; padding-left: 1.3em; }
+li + li { margin-top: 4px; }
+.notice { background: var(--warn-bg); border-color: var(--warn-line); }
+.notice h3 { margin: 0 0 4px; font-size: 1rem; }
+.plugin { padding: 10px 0; border-top: 1px solid var(--line); }
+.plugin:first-of-type { border-top: 0; padding-top: 0; }
+.plugin b { margin-right: 8px; }
+.plugin small { color: var(--muted); }
+code { font-family: ui-monospace, Consolas, monospace; font-size: .92em; }
+footer { color: var(--muted); font-size: .9rem; text-align: center; margin-top: 28px; }
+footer a { color: inherit; }
+[hidden] { display: none !important; }
+</style>
+</head>
+<body>
+<main>
+  <h1>mcbot<span class="tag">测试中</span></h1>
+  <p class="lead">用你本机的 AI Agent（Claude Code、Codex、DeepSeek Harness）在 Minecraft 里控制一个游戏伙伴：跟着你、保护你、帮你砍树挖矿、种地、盖房子，边做边聊天。</p>
+
+  <div id="notices"></div>
+
+  <section>
+    <h2>下载</h2>
+    <div id="dl" hidden>
+      <a class="btn" id="dl-btn" href="#">下载安装包</a>
+      <p class="meta" id="dl-meta"></p>
+      <p class="meta" id="dl-mirror" hidden>下载慢或打不开？<a id="dl-github" href="#">从 GitHub 下载</a></p>
+      <div id="dl-notes" hidden><p class="meta">这个版本的更新：</p><ul id="dl-notes-list"></ul></div>
+    </div>
+    <p id="dl-error" class="meta" hidden>暂时读不到版本信息。可以到 <a href="https://github.com/muxue-mcbot/mcbot/releases">GitHub Releases</a> 下载。</p>
+    <p class="meta" id="dl-loading">正在读取版本信息……</p>
+  </section>
+
+  <section>
+    <h2>需要什么</h2>
+    <ul>
+      <li>Windows 10 或 11（64 位）</li>
+      <li>Minecraft {{minecraft}}，NeoForge {{loaderMin}} 及以上，Java {{java}}（用 HMCL、PCL 等启动器装好）</li>
+      <li>一个 Agent，在本机装好并登录：Claude Code、Codex CLI 或 DeepSeek Harness</li>
+    </ul>
+  </section>
+
+  <section>
+    <h2>怎么用</h2>
+    <ol>
+      <li>下载并运行安装包。安装包没有代码签名，Windows 可能提示“已保护你的电脑”，点“更多信息”，再点“仍要运行”。</li>
+      <li>从开始菜单或桌面打开 <b>mcbot</b>，浏览器里会打开它的设置页（只在本机）。</li>
+      <li>在「插件」页选你的游戏，安装核心模组和想用的插件，然后启动游戏。</li>
+      <li>进入世界。单人世界要先按 Esc 选「对局域网开放」。</li>
+      <li>在「配置」页选 Agent 和角色，点启动托管，然后在游戏里叫它的名字。</li>
+    </ol>
+    <p class="meta">登录信息、记忆和日志都留在你的电脑上。有新版本时，打开 mcbot 会提示更新。</p>
+  </section>
+
+  <section id="plugins" hidden>
+    <h2>插件</h2>
+    <p class="meta" style="margin:0 0 12px">让 Bot 会用这些模组。在 mcbot 的「插件」页安装，被适配的模组会一起装好。</p>
+    <div id="plugin-list"></div>
+  </section>
+
+  <footer>
+    <a href="https://github.com/muxue-mcbot/mcbot">GitHub</a> · 开源仓库和问题反馈
+  </footer>
+</main>
+<script>
+(function () {
+  var $ = function (id) { return document.getElementById(id); };
+  var el = function (tag, text) { var e = document.createElement(tag); if (text != null) e.textContent = text; return e; };
+  var mb = function (n) { return (n / 1048576).toFixed(1) + ' MB'; };
+  var today = new Date().toLocaleDateString('sv-SE');
+  // 和 WebUI 一样拼地址：服务器 = 根地址 + file；GitHub = .../releases/download/ + tag/ + 文件名
+  var isGithub = function (s) { return /^https:\/\/github\.com\/[^/]+\/[^/]+\/releases\/download\/$/.test(s); };
+  var safe = function (s) { return typeof s === 'string' && /^[a-z0-9_-]+\/[A-Za-z0-9._+-]+$/.test(s); };
+
+  fetch('index.json', { cache: 'no-store' }).then(function (r) {
+    if (!r.ok) throw new Error(r.status);
+    return r.json();
+  }).then(function (index) {
+    var app = index.app;
+    if (!app || !safe(app.file)) throw new Error('bad index');
+    $('dl-btn').href = app.file;
+    $('dl-btn').textContent = '下载 mcbot ' + app.version;
+    $('dl-meta').textContent = '版本 ' + app.version + ' · ' + app.date + ' · ' + mb(app.size) + ' · Windows 64 位';
+    var gh = (index.sources || []).filter(isGithub)[0];
+    if (gh && app.tag) { $('dl-github').href = gh + app.tag + '/' + app.file.split('/').pop(); $('dl-mirror').hidden = false; }
+    if (Array.isArray(app.notes) && app.notes.length) {
+      app.notes.forEach(function (n) { $('dl-notes-list').appendChild(el('li', n)); });
+      $('dl-notes').hidden = false;
+    }
+    $('dl').hidden = false;
+
+    (index.notices || []).filter(function (n) { return n && n.title && (!n.until || n.until >= today); }).forEach(function (n) {
+      var s = el('section'); s.className = n.level === 'warn' ? 'notice' : '';
+      s.appendChild(el('h3', n.title)); s.appendChild(el('p', n.text)).style.margin = '0';
+      s.appendChild(el('p', n.date)).className = 'meta';
+      $('notices').appendChild(s);
+    });
+
+    var plugins = index.plugins || {};
+    Object.keys(plugins).forEach(function (id) {
+      var p = plugins[id], d = el('div'); d.className = 'plugin';
+      d.appendChild(el('b', p.name || id)); d.appendChild(el('small', p.version ? 'v' + p.version : ''));
+      if (Array.isArray(p.what) && p.what.length) d.appendChild(el('div', p.what.join('；')));
+      $('plugin-list').appendChild(d);
+    });
+    $('plugins').hidden = !Object.keys(plugins).length;
+  }).catch(function () {
+    $('dl-error').hidden = false;
+  }).then(function () { $('dl-loading').hidden = true; });
+})();
+</script>
+</body>
+</html>

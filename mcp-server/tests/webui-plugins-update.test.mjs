@@ -5,7 +5,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { applyPlugin, compareInstalled, inspectPlugins, loadCatalog, planPlugin } from '../../scripts/webui-plugins.mjs';
-import { fileUrl } from '../../scripts/webui-update.mjs';
+import { DEFAULT_SOURCES, fileUrl } from '../../scripts/webui-update.mjs';
 import { modJar } from './jar-fixture.mjs';
 
 const tmp = () => fs.mkdtempSync(path.join(os.tmpdir(), 'mcbot-plugup-'));
@@ -90,7 +90,7 @@ test('全部更新：核心和已安装的插件一起出计划，没装的不�
       ['remove', 'mcbot-kaleidoscope-cookery-0.0.1.jar'], ['download', 'mcbot-kaleidoscope-cookery-0.0.3.jar'], ['add', 'mcbot-kaleidoscope-cookery-0.0.3.jar'],
       ['remove', 'kc-1.6.0.jar'], ['download', 'kc-1.7.0.jar'], ['add', 'kc-1.7.0.jar'],
     ]);
-    assert.deepEqual(plan.steps[1].urls, [SERVER + 'core/mcbot-server-control-0.0.2.jar', GITHUB + 'app-v0.0.2/mcbot-server-control-0.0.2.jar']);
+    assert.deepEqual(plan.steps[1].urls, [SERVER + 'core/mcbot-server-control-0.0.2.jar', DEFAULT_SOURCES[1] + 'app-v0.0.2/mcbot-server-control-0.0.2.jar', GITHUB + 'app-v0.0.2/mcbot-server-control-0.0.2.jar'], '默认来源在前，清单里多记的在后');
     const r = await applyPlugin(f.game, '', 'update-all', { ...f.opts, catalog: catalogOf(f) });
     assert.equal(r.ok, true, r.error);
     assert.deepEqual(fs.readdirSync(path.join(f.game, 'mods')).sort(), ['kc-1.7.0.jar', 'mcbot-kaleidoscope-cookery-0.0.3.jar', 'mcbot-server-control-0.0.2.jar']);
@@ -124,7 +124,7 @@ test('没有清单时按规则拼地址；下载的 jar 里 mod id 或版本不�
     const c = catalogOf(f);
     assert.deepEqual(c.core.remote, { file: 'core/mcbot-server-control-0.0.2.jar', tag: 'app-v0.0.2', size: 0 });
     const plan = planPlugin(f.game, 'mcbot_server_control', 'install', { catalog: c, runtime: f.runtime });
-    assert.deepEqual(plan.steps[0].urls, [SERVER + 'core/mcbot-server-control-0.0.2.jar'], '只有默认来源');
+    assert.deepEqual(plan.steps[0].urls, DEFAULT_SOURCES.map((s) => fileUrl(s, { file: 'core/mcbot-server-control-0.0.2.jar', tag: 'app-v0.0.2' })), '只有默认来源');
     f.files[SERVER + 'core/mcbot-server-control-0.0.2.jar'] = modJar('mcbot_server_control', '0.0.1');
     const r = await applyPlugin(f.game, 'mcbot_server_control', 'install', { ...f.opts, catalog: c });
     assert.equal(r.ok, false); assert.match(r.error, /内容与清单不符/);

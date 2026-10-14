@@ -16,8 +16,10 @@ import { normalizeDir, nodeProcesses } from './game-processes.mjs';
 
 /** WebUI 认识的清单格式；清单的 schema 更高时不自动更新，只提示到网站下载。 */
 export const SCHEMA = 1;
-// GitHub 组织定了以后在这里加上 'https://github.com/<组织>/<仓库>/releases/download/'
-export const DEFAULT_SOURCES = ['https://mcbot.muxueuma.com/'];
+/** 发布的地方（release.mjs 写进清单、publish.mjs 上传都用这里的）：更新服务器在前，GitHub Releases 在后。 */
+export const SERVER_SOURCE = 'https://mcbot.muxueuma.com/';
+export const GITHUB_REPO = 'muxue-mcbot/mcbot';
+export const DEFAULT_SOURCES = [SERVER_SOURCE, `https://github.com/${GITHUB_REPO}/releases/download/`];
 const INDEX_FILE = 'update-index.json', SEEN_FILE = 'notices-seen.json';
 const INDEX_TIMEOUT_MS = 5000;
 /** 下载时多久没收到数据算超时（不按总时长算：安装包约 40 MB，慢的网络要下好几分钟）。 */

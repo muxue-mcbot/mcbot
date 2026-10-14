@@ -1,7 +1,8 @@
 #!/usr/bin/env node
 // 生成发布用的目录：output/release/ 下摆成和服务器一样的 app/、core/、plugins/ 加总清单 index.json（格式见 docs/update_design.md 第四节）。
-// 只生成，不上传：上传到服务器或 GitHub 是公开操作，要先问用户。
-// 用法：node scripts/release.mjs --github-org <组织> --github-repo <仓库> [--notes <更新说明.json>] [--out output/release] [--installer <exe>] [--date YYYY-MM-DD]
+// 只生成，不上传：上传（scripts/publish.mjs）到服务器或 GitHub 是公开操作，要先问用户。来源地址以 webui-update.mjs 的 DEFAULT_SOURCES 为准。
+// 网站首页 site/index.html 也摆进去（{{minecraft}} 之类按 compat.json 填），它读同目录的 index.json 显示下载。
+// 用法：node scripts/release.mjs [--notes <更新说明.json>] [--out output/release] [--installer <exe>] [--date YYYY-MM-DD]
 // 先用 package.mjs 打好安装包、用 gradle 构建好核心和插件。版本和上一份 index.json（默认是 --out 里的那份）一样的部分整段沿用、不复制文件；
 // 新版本的部分要在 --notes 里写更新说明：{ "app": ["……"], "plugins": { "<插件 id>": ["……"] }, "notices": [ 公告 ] }。
 // plugins 从 compat.json 生成，先跑 check-compat。
@@ -11,26 +12,23 @@ import { fileURLToPath } from 'node:url';
 import { isDeepStrictEqual } from 'node:util';
 import { loadCompat, checkCompat, gradleProperty } from './check-compat.mjs';
 import { parseVersion, compareVersions, readAppVersion } from './version.mjs';
+import { DEFAULT_SOURCES, SCHEMA } from './webui-update.mjs';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
-export const SCHEMA = 1;
-export const SERVER = 'https://mcbot.muxueuma.com/';
-const NAME = /^[A-Za-z0-9][A-Za-z0-9._-]*$/;
+export { SCHEMA };
+export const SITE = path.join(ROOT, 'site', 'index.html');
 const DATE = /^\d{4}-\d{2}-\d{2}$/;
 
 export function parseReleaseArgs(argv) {
-  const o = { out: path.join(ROOT, 'output', 'release'), notes: '', installer: '', date: new Date().toLocaleDateString('sv-SE'), org: '', repo: '' };
+  const o = { out: path.join(ROOT, 'output', 'release'), notes: '', installer: '', date: new Date().toLocaleDateString('sv-SE') };
   for (let i = 0; i < argv.length; i++) {
     const a = argv[i], v = () => { if (i + 1 >= argv.length) throw new Error(`${a} 后面要写值`); return argv[++i]; };
     if (a === '--out') o.out = path.resolve(v());
     else if (a === '--notes') o.notes = path.resolve(v());
     else if (a === '--installer') o.installer = path.resolve(v());
     else if (a === '--date') o.date = v();
-    else if (a === '--github-org') o.org = v();
-    else if (a === '--github-repo') o.repo = v();
-    else throw new Error(`不支持的参数：${a}（可用参数：--github-org、--github-repo、--notes、--out、--installer、--date）`);
+    else throw new Error(`不支持的参数：${a}（可用参数：--notes、--out、--installer、--date）`);
   }
-  if (!NAME.test(o.org) || !NAME.test(o.repo)) throw new Error('要用 --github-org 和 --github-repo 写明 GitHub 的组织名和仓库名');
   if (!DATE.test(o.date)) throw new Error(`--date 要写成 YYYY-MM-DD：${o.date}`);
   return o;
 }
@@ -57,7 +55,7 @@ export function checkNotice(n) {
  * 算出新的 index.json 和要摆进发布目录的文件。parts 是这次构建出来的主程序和插件（版本、文件、大小），prev 是上一份清单（可以没有）。
  * 版本没变的部分沿用上一份；变了的要比上一份新，要有更新说明。
  */
-export function planRelease({ compat, app, plugins, prev, notes = {}, date, org, repo }) {
+export function planRelease({ compat, app, plugins, prev, notes = {}, date, sources = DEFAULT_SOURCES }) {
   const files = [], warnings = [];
   const fresh = (kind, id, built) => {
     const old = kind === 'app' ? prev?.app : prev?.plugins?.[id];
@@ -109,7 +107,7 @@ export function planRelease({ compat, app, plugins, prev, notes = {}, date, org,
 
   const index = {
     schema: SCHEMA, updated: date,
-    sources: [SERVER, `https://github.com/${org}/${repo}/releases/download/`],
+    sources: [...sources],
     app: appEntry,
     notices: [...notices.values()],
     plugins: pluginEntries,
@@ -133,8 +131,14 @@ export function collectBuilt(compat, installer) {
   return { app, plugins };
 }
 
-/** 把新文件复制进发布目录，最后写 index.json。同名文件已经在而大小不同就停下：发布过的文件名不能换内容。 */
-export function writeRelease(out, { index, files }) {
+/** 网站首页：site/index.html 里的 {{minecraft}}、{{loaderMin}}、{{java}} 按 compat.json 填；下载和版本由页面读 index.json。 */
+export function sitePage(compat, template = fs.readFileSync(SITE, 'utf8')) {
+  const values = { minecraft: compat.platform.minecraft, loaderMin: compat.platform.loaderMin, java: compat.platform.java };
+  return template.replace(/\{\{(\w+)\}\}/g, (m, k) => { if (!(k in values)) throw new Error(`site/index.html 里的 ${m} 没有对应的值`); return values[k]; });
+}
+
+/** 把新文件复制进发布目录，写网站首页（每次都换），最后写 index.json。同名文件已经在而大小不同就停下：发布过的文件名不能换内容。 */
+export function writeRelease(out, { index, files }, site = '') {
   for (const f of files) {
     const to = path.join(out, f.to);
     if (fs.existsSync(to)) {
@@ -145,8 +149,9 @@ export function writeRelease(out, { index, files }) {
     fs.copyFileSync(f.from, to + '.tmp');
     fs.renameSync(to + '.tmp', to);
   }
-  const file = path.join(out, 'index.json');
   fs.mkdirSync(out, { recursive: true });
+  if (site) fs.writeFileSync(path.join(out, 'index.html'), site);
+  const file = path.join(out, 'index.json');
   fs.writeFileSync(file + '.tmp', JSON.stringify(index, null, 2) + '\n');
   fs.renameSync(file + '.tmp', file);
   return file;
@@ -162,11 +167,11 @@ if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.me
     const prev = fs.existsSync(prevFile) ? readJson(prevFile) : null;
     if (prev && prev.schema > SCHEMA) throw new Error(`上一份清单的 schema 是 ${prev.schema}，比本脚本认识的 ${SCHEMA} 新`);
     const notes = o.notes ? readJson(o.notes) : {};
-    const plan = planRelease({ compat, ...collectBuilt(compat, o.installer), prev, notes, date: o.date, org: o.org, repo: o.repo });
-    const file = writeRelease(o.out, plan);
+    const plan = planRelease({ compat, ...collectBuilt(compat, o.installer), prev, notes, date: o.date });
+    const file = writeRelease(o.out, plan, sitePage(compat));
     for (const w of plan.warnings) console.warn(`注意：${w}`);
     console.log(`已生成 ${file}（主程序 ${plan.index.app.version}，插件 ${Object.keys(plan.index.plugins).length} 个，公告 ${plan.index.notices.length} 条）`);
     console.log(plan.files.length ? `这次新增的文件：\n- ${plan.files.map((f) => f.to).join('\n- ')}` : '没有新文件，只更新了 index.json');
-    console.log('没有上传。上传到服务器或 GitHub 前要先问用户；服务器上先传文件、最后覆盖 index.json。');
+    console.log('没有上传。上传（node scripts/publish.mjs）到服务器或 GitHub 前要先问用户。');
   } catch (e) { console.error(e.message); process.exit(1); }
 }

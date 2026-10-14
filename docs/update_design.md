@@ -69,7 +69,7 @@
 
 ```json
 { "schema": 1, "updated": "2026-10-20",
-  "sources": ["https://mcbot.muxueuma.com/", "https://github.com/<组织>/<仓库>/releases/download/"],
+  "sources": ["https://mcbot.muxueuma.com/", "https://github.com/muxue-mcbot/mcbot/releases/download/"],
   "app": { "version": "0.0.2", "date": "2026-10-20", "notes": ["修了……"],
            "file": "app/mcbot-setup-0.0.2.exe", "tag": "app-v0.0.2", "size": 45678901,
            "core": { "file": "core/mcbot-server-control-0.0.2.jar", "size": 345678 } },
@@ -97,6 +97,7 @@
 - GitHub：用 `gh` 建 `app-v0.0.2` 或 `<插件>-v0.0.3` 的 Release 并上传文件。另有一个固定的 Release `index` 放 `index.json`，每次用 `--clobber` 覆盖。这个 Release 要标成不是最新（`--latest=false`），免得仓库首页的“Latest”指向它。
 - 更新说明从交付计划里挑和玩家有关的写，用中文。
 - 发布是公开操作，每次上传前都要先问用户。
+- 10-15 实现：上传用 `scripts/publish.mjs`（服务器和 GitHub 两边）；仓库转到组织 `muxue-mcbot` 并改名 `mcbot`，来源地址只写在 `webui-update.mjs` 的 `DEFAULT_SOURCES`。服务器根目录另放一个简单的首页 `index.html`（`site/index.html`，读 `index.json` 显示下载）。
 
 ## 六、主程序更新（WebUI）
 

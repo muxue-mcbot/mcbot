@@ -4,7 +4,8 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { loadCompat } from '../../scripts/check-compat.mjs';
-import { planRelease, writeRelease, parseReleaseArgs, checkNotice, SERVER } from '../../scripts/release.mjs';
+import { planRelease, writeRelease, parseReleaseArgs, checkNotice, sitePage } from '../../scripts/release.mjs';
+import { DEFAULT_SOURCES } from '../../scripts/webui-update.mjs';
 
 const compat = loadCompat();
 const addons = compat.adapters.filter((a) => a.kind === 'addon');
@@ -13,13 +14,14 @@ const built = (appVersion, pluginVersions = {}, sizes = {}) => ({
   plugins: Object.fromEntries(addons.map((a) => [a.id, { version: pluginVersions[a.id] ?? '0.0.1', file: `/b/${a.jar}`, size: sizes[a.id] ?? 10 }])),
 });
 const allNotes = { app: ['首个版本'], plugins: Object.fromEntries(addons.map((a) => [a.id, ['首次发布']])) };
-const base = { compat, date: '2026-10-20', org: 'org', repo: 'repo' };
+const base = { compat, date: '2026-10-20' };
 
 test('a first release lists every part in the design format, with GitHub tags and plugin fields taken from compat.json', () => {
   const { index, files, warnings } = planRelease({ ...base, ...built('0.0.1'), prev: null, notes: allNotes });
   assert.deepEqual(warnings, []);
   assert.deepEqual(Object.keys(index), ['schema', 'updated', 'sources', 'app', 'notices', 'plugins']);
-  assert.deepEqual(index.sources, [SERVER, 'https://github.com/org/repo/releases/download/']);
+  assert.deepEqual(index.sources, ['https://mcbot.muxueuma.com/', 'https://github.com/muxue-mcbot/mcbot/releases/download/']);
+  assert.deepEqual(index.sources, DEFAULT_SOURCES);
   assert.deepEqual(index.app, { version: '0.0.1', date: '2026-10-20', notes: ['首个版本'], file: 'app/mcbot-setup-0.0.1.exe', tag: 'app-v0.0.1', size: 1000,
     core: { file: 'core/mcbot-server-control-0.0.1.jar', size: 100 } });
   const kc = index.plugins.kaleidoscope_cookery, src = addons.find((a) => a.id === 'kaleidoscope_cookery');
@@ -72,8 +74,9 @@ test('the release folder gets new files first, then index.json; a published name
     const src = path.join(dir, 'a.jar');
     fs.writeFileSync(src, 'abc');
     const out = path.join(dir, 'out');
-    writeRelease(out, { index: { schema: 1 }, files: [{ from: src, to: 'plugins/a.jar', size: 3 }] });
+    writeRelease(out, { index: { schema: 1 }, files: [{ from: src, to: 'plugins/a.jar', size: 3 }] }, '<p>site</p>');
     assert.equal(fs.readFileSync(path.join(out, 'plugins', 'a.jar'), 'utf8'), 'abc');
+    assert.equal(fs.readFileSync(path.join(out, 'index.html'), 'utf8'), '<p>site</p>', '网站首页每次都写');
     assert.deepEqual(JSON.parse(fs.readFileSync(path.join(out, 'index.json'), 'utf8')), { schema: 1 });
     assert.deepEqual(fs.readdirSync(path.join(out, 'plugins')), ['a.jar'], '没有留下 .tmp');
     fs.writeFileSync(src, 'abcd');
@@ -82,11 +85,14 @@ test('the release folder gets new files first, then index.json; a published name
   } finally { fs.rmSync(dir, { recursive: true, force: true }); }
 });
 
-test('release arguments need the GitHub organisation and repository; notices are validated', () => {
-  assert.throws(() => parseReleaseArgs([]), /--github-org 和 --github-repo/);
-  assert.throws(() => parseReleaseArgs(['--github-org', 'a/b', '--github-repo', 'r']), /--github-org/);
-  assert.equal(parseReleaseArgs(['--github-org', 'o', '--github-repo', 'r', '--date', '2026-10-20']).date, '2026-10-20');
-  assert.throws(() => parseReleaseArgs(['--github-org', 'o', '--github-repo', 'r', '--date', '10/20']), /YYYY-MM-DD/);
+test('release arguments and notices are validated; the site page is filled from compat.json', () => {
+  assert.throws(() => parseReleaseArgs(['--github-org', 'o']), /不支持的参数：--github-org/);
+  assert.equal(parseReleaseArgs(['--date', '2026-10-20']).date, '2026-10-20');
+  assert.throws(() => parseReleaseArgs(['--date', '10/20']), /YYYY-MM-DD/);
+  const page = sitePage(compat);
+  assert.ok(page.includes(`Minecraft ${compat.platform.minecraft}`) && page.includes(compat.platform.loaderMin));
+  assert.doesNotMatch(page, /\{\{/);
+  assert.throws(() => sitePage(compat, '{{nope}}'), /\{\{nope\}\} 没有对应的值/);
   const ok = { id: 'x', date: '2026-10-20', title: 't', text: 'x', level: 'info', appMin: '0.0.1', until: '2026-12-31' };
   assert.equal(checkNotice(ok), ok);
   assert.throws(() => checkNotice({ ...ok, level: 'error' }), /level 只能是 info 或 warn/);
