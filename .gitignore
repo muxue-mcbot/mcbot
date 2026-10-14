@@ -19,6 +19,7 @@ memory/
 data/
 skins/
 shaderpacks/
+video/
 .claude/
 .mcp.json
 .env
