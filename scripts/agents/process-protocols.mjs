@@ -19,6 +19,7 @@ import path from 'node:path';
 import { codexCommand, createCodexConnection } from './codex-app-server.mjs';
 import { dshCommand, createDshConnection, writeDshPatch } from './dsh-acp.mjs';
 import { SERVER_GAME_INSTRUCTIONS } from './game-instructions.mjs';
+import { runtimeDir } from '../paths.mjs';
 
 export function claudeContextTokens(usage) {
   if (!usage) return 0;
@@ -162,17 +163,17 @@ const codex = Object.freeze({
   compacts: true,
 });
 
-// DeepSeek Harness：ACP（标准 stdio JSON-RPC）。账号目录就是 DSH_HOME，默认放在仓库的 runtime/dsh/home，
+// DeepSeek Harness：ACP（标准 stdio JSON-RPC）。账号目录就是 DSH_HOME，默认放在数据目录的 runtime/dsh/home，
 // 不写用户的 ~/.dsh；DeepSeek 凭据由使用者用 DEEPSEEK_API_KEY 或 dsh 自己的凭据配置提供。
 const dsh = Object.freeze({
   provider: 'dsh', label: 'dsh', tracksContextTokens: true,
   bodies: Object.freeze(['server']), defaultName: 'DeepSeekBot', defaultNickname: 'DeepSeek',
-  configEnv: 'DSH_HOME', defaultConfigDir: (home, root) => path.join(root, 'runtime', 'dsh', 'home'),
+  configEnv: 'DSH_HOME', defaultConfigDir: (home, root) => path.join(runtimeDir(root), 'dsh', 'home'),
   identity: 'independent', systemInstructions: true, hostedMcpConfig: true,
   // 只挂游戏工具的补丁版本；补丁内容变了就不接着旧会话。
   serverPolicy: 'dsh-acp-game-tools-v1',
   // 没指定账号目录也不落到用户的 ~/.dsh。桌面版的 Electron 要 ELECTRON_RUN_AS_NODE 才当 Node 用，对普通 Node 没影响。
-  environment: (env, { root }) => ({ ...env, DSH_HOME: env.DSH_HOME || path.join(root, 'runtime', 'dsh', 'home'), ELECTRON_RUN_AS_NODE: '1' }),
+  environment: (env, { root }) => ({ ...env, DSH_HOME: env.DSH_HOME || path.join(runtimeDir(root, env), 'dsh', 'home'), ELECTRON_RUN_AS_NODE: '1' }),
   defaultEffort: 'low',
   command({ root, hostedConfigFile, gameInstructions, rotateTokens, contextWindow, rules }) {
     const patchFile = writeDshPatch(hostedConfigFile.replace(/\.json$/i, '') + '.dsh-patch.yml', gameInstructions, { rotateTokens, contextWindow, rules });

@@ -12,6 +12,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { getAgentProtocol } from './agents/process-protocols.mjs';
+import { memoryDir as defaultMemoryDir, runtimeDir } from './paths.mjs';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const NAME_RE = /^[A-Za-z0-9_]{1,16}$/;
@@ -295,12 +296,12 @@ export function modelLabels(gameDir, choices) {
 
 /**
  * 托管时带上的人设文件：<记忆目录>/<Bot 游戏名小写>/persona.md，和 start-server-play 传给驱动器的 --memory-agent 一致。
- * 记忆目录留空时，Claude 用仓库的 memory，独立试玩身份（dsh、Codex）用 runtime/<agent>-memory。
+ * 记忆目录留空时，Claude 用数据目录的 memory，独立试玩身份（dsh、Codex）用 runtime/<agent>-memory（数据目录见 paths.mjs）。
  */
 export function personaFile({ agent, memoryDir = '', username = '' }, root = ROOT) {
   if (!NAME_RE.test(username)) throw new Error('请先在「连接配置」中选择游戏；读取到 Bot 的游戏名后才能确定人设位置');
   const independent = getAgentProtocol(agent).identity === 'independent';
-  return path.join(memoryDir || (independent ? path.join(root, 'runtime', `${agent}-memory`) : path.join(root, 'memory')), username.toLowerCase(), 'persona.md');
+  return path.join(memoryDir || (independent ? path.join(runtimeDir(root), `${agent}-memory`) : defaultMemoryDir(root)), username.toLowerCase(), 'persona.md');
 }
 export function readPersona(opts, root = ROOT) {
   let file;

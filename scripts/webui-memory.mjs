@@ -7,6 +7,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { personaFile } from './webui-games.mjs';
+import { runtimeDir } from './paths.mjs';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const LIMITS = JSON.parse(fs.readFileSync(path.join(ROOT, 'client-runtime', 'memory-limits.json'), 'utf8'));
@@ -19,7 +20,7 @@ const AGENT_SECTIONS = [['bonds', '回忆'], ['goals', '约定和想做的事'],
 const WORLD_SECTIONS = AGENT_SECTIONS.filter(([id]) => id !== 'bonds');
 
 /** Bot 的记忆位置；出错（还没选游戏、目录不对）时 ok:false。 */
-export function memoryPaths(opts, { root = ROOT, runtime = path.join(root, 'runtime') } = {}) {
+export function memoryPaths(opts, { root = ROOT, runtime = runtimeDir(root) } = {}) {
   let persona;
   try { persona = personaFile(opts, root); } catch (e) { return { ok: false, error: e.message }; }
   const agentDir = path.dirname(persona);

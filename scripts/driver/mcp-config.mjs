@@ -4,17 +4,18 @@ import path from 'node:path';
 import { getAgentProtocol } from '../agents/process-protocols.mjs';
 import { ROOT, argValue, setArg } from './args.mjs';
 import { writeFileAtomic } from './files.mjs';
+import { memoryDir as defaultMemoryDir, runtimeDir } from '../paths.mjs';
 
 // 驱动器和 MCP 服务端共用的记忆位置：驱动器命令行（或 COMPANION_MEMORY_DIR）> MCP 配置里的参数 > 默认
 export function resolveMemory(args, mcpArgs = [], root = ROOT) {
   // 新的独立试玩身份不自动继承 .mcp.json 中小克的长期记忆。
   const protocol = getAgentProtocol(args.agent);
   if (protocol.identity === 'independent') return {
-    memoryDir: args.memoryDir || path.join(root, 'runtime', `${args.agent}-memory`),
+    memoryDir: args.memoryDir || path.join(runtimeDir(root), `${args.agent}-memory`),
     memoryAgent: args.memoryAgent || args.name.toLowerCase(),
   };
   const fromMcpDir = argValue(mcpArgs, '--memory-dir');
-  const memoryDir = args.memoryDir || (fromMcpDir ? path.resolve(root, fromMcpDir) : path.join(root, 'memory'));
+  const memoryDir = args.memoryDir || (fromMcpDir ? path.resolve(root, fromMcpDir) : defaultMemoryDir(root));
   const memoryAgent = args.memoryAgent || argValue(mcpArgs, '--memory-agent') || protocol.memoryAgent;
   return { memoryDir, memoryAgent };
 }

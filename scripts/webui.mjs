@@ -15,14 +15,14 @@ import { createPluginJobs, disabledPlugins, inspectPlugins, loadCatalog, planPlu
 import { gameRunState, javaProcesses, runMessage } from './game-processes.mjs';
 import { deleteDay, deleteLine, readDay, viewMemory } from './webui-memory.mjs';
 import { HEARTBEAT_FRESH_MS } from './host-timing.mjs';
+import { PROGRAM_DIR, dataDir, isInstalled, runtimeDir } from './paths.mjs';
 
-const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const NAME_RE = /^[A-Za-z0-9_]{1,16}$/;
 const FIRST_READ_BYTES = 128 * 1024;
 const MAX_READ_BYTES = 512 * 1024;
 
 export function parseWebArgs(argv) {
-  const out = { port: 8770, runtime: process.env.COMPANION_RUNTIME_DIR || path.join(ROOT, 'runtime'), open: false };
+  const out = { port: 8770, runtime: process.env.COMPANION_RUNTIME_DIR || runtimeDir(), open: false };
   for (let i = 0; i < argv.length; i++) {
     const a = argv[i];
     if (a === '--port') out.port = Number(argv[++i]);
@@ -127,7 +127,14 @@ function profilesView(runtime, launcher) {
 
 const isAbsPath = (p) => path.isAbsolute(p) && !/[\u0000-\u001f]/.test(p);
 
-export function createWebServer({ runtime, token = crypto.randomBytes(24).toString('hex'), launcher, models, games, plugins = {} }) {
+// 用资源管理器打开文件夹（「设置」页的「打开数据目录」）；测试时换掉
+function openFolder(dir) {
+  if (process.platform !== 'win32') return false;
+  import('node:child_process').then(({ spawn }) => spawn('explorer.exe', [dir], { detached: true, stdio: 'ignore' }).unref());
+  return true;
+}
+
+export function createWebServer({ runtime, token = crypto.randomBytes(24).toString('hex'), launcher, models, games, plugins = {}, data = dataDir(), open = openFolder }) {
   let port = 0;
   // 插件页：catalog、downloads、fetchImpl、online、knownGames 都能换掉（测试用）
   const pluginOpts = { downloads: path.join(runtime, 'mod-downloads'), online: (dir) => gameOnline(connectionFileOf(dir)), listProcesses: javaProcesses, ...plugins };
@@ -171,6 +178,12 @@ export function createWebServer({ runtime, token = crypto.randomBytes(24).toStri
     if (url.pathname.startsWith('/api/profiles') || url.pathname.startsWith('/api/games') || url.pathname.startsWith('/api/persona') || url.pathname === '/api/memory' || url.pathname.startsWith('/api/memory/') || url.pathname === '/api/models' || url.pathname.startsWith('/api/appearances') || url.pathname.startsWith('/api/plugins')) {
       handleProfiles(req, res, url).catch((e) => send(res, 400, { ok: false, error: e.message }));
       return;
+    }
+    // 「设置」页：程序目录和数据目录（docs/update_design.md 第一节）
+    if (req.method === 'GET' && url.pathname === '/api/about') return send(res, 200, { ok: true, program: PROGRAM_DIR, data, installed: isInstalled() });
+    if (req.method === 'POST' && url.pathname === '/api/open-data-dir') {
+      fs.mkdirSync(data, { recursive: true });
+      return send(res, 200, open(data) ? { ok: true } : { ok: false, error: '仅支持在 Windows 上打开文件夹' });
     }
     const name = url.searchParams.get('name') || '';
     if (req.method === 'GET' && url.pathname === '/api/bots') return send(res, 200, { bots: listBots(runtime) });
@@ -303,6 +316,8 @@ const PAGE = fs.readFileSync(path.join(path.dirname(fileURLToPath(import.meta.ur
 if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
   let opts;
   try { opts = parseWebArgs(process.argv.slice(2)); } catch (e) { console.error(e.message); process.exit(2); }
+  // 安装版第一次打开时数据目录还不存在
+  fs.mkdirSync(opts.runtime, { recursive: true });
   const web = createWebServer({ runtime: opts.runtime });
   web.listen(opts.port).then((port) => {
     const url = `http://127.0.0.1:${port}/?t=${web.token}`;

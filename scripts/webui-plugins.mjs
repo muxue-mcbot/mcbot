@@ -12,6 +12,7 @@ import { pipeline } from 'node:stream/promises';
 import { fileURLToPath } from 'node:url';
 import { connectionFileOf, gameOnline, gameSupport, gameType } from './webui-games.mjs';
 import { gameRunState, javaProcesses, runMessage } from './game-processes.mjs';
+import { runtimeDir } from './paths.mjs';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const ITEM_HANDLERS = path.join('config', 'mcbot-server-control', 'item-handlers.json');
@@ -225,7 +226,7 @@ const cached = (downloads, m) => { const f = path.join(downloads, m.file); try {
  * download（从 Modrinth 下载到缓存）、add（放进 mods）、remove（从 mods 移到备份）、config（改通用物品槽配置）。
  * notes 是给人看的提醒；error 表示现在不能做。
  */
-export function planPlugin(gameDir, id, action, { catalog = loadCatalog(), downloads = path.join(ROOT, 'runtime', 'mod-downloads') } = {}) {
+export function planPlugin(gameDir, id, action, { catalog = loadCatalog(), downloads = path.join(runtimeDir(), 'mod-downloads') } = {}) {
   const target = id === catalog.core.id ? catalog.core : catalog.plugins.find((p) => p.id === id);
   if (!target) return { ok: false, error: '插件不存在' };
   if (!['install', 'uninstall'].includes(action)) return { ok: false, error: '仅支持安装或卸载' };
@@ -319,7 +320,7 @@ function editItemHandlers(gameDir, step) {
  * 执行一份重新算出来的计划（不信网页传来的步骤）。顺序：先下载（不碰游戏），再把要移走的挪进备份，
  * 再放新文件、改配置；中途出错就把放进去的拿掉、移走的放回来。
  */
-export async function applyPlugin(gameDir, id, action, { catalog = loadCatalog(), downloads = path.join(ROOT, 'runtime', 'mod-downloads'), fetchImpl = fetch,
+export async function applyPlugin(gameDir, id, action, { catalog = loadCatalog(), downloads = path.join(runtimeDir(), 'mod-downloads'), fetchImpl = fetch,
   online = (dir) => gameOnline(connectionFileOf(dir)), listProcesses = javaProcesses, progress = () => {}, now = new Date() } = {}) {
   const plan = planPlugin(gameDir, id, action, { catalog, downloads });
   if (!plan.ok || plan.nothing) return plan;

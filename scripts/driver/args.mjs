@@ -2,6 +2,7 @@
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { getAgentProtocol, AGENT_NAMES, agentsFor } from '../agents/process-protocols.mjs';
+import { runtimeDir } from '../paths.mjs';
 
 /** 仓库（绿色版的包）根目录：scripts/driver/ 往上两级。 */
 export const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..');
@@ -54,9 +55,9 @@ export function parseArgs(argv) {
   return args;
 }
 
-/** runtime/ 目录：环境变量 COMPANION_RUNTIME_DIR，不给就是仓库的 runtime/。 */
+/** runtime/ 目录：环境变量 COMPANION_RUNTIME_DIR，不给就是数据目录的 runtime/（scripts/paths.mjs）。 */
 export function runtimeDirOf(env = process.env) {
-  return env.COMPANION_RUNTIME_DIR ? path.resolve(env.COMPANION_RUNTIME_DIR) : path.join(ROOT, 'runtime');
+  return env.COMPANION_RUNTIME_DIR ? path.resolve(env.COMPANION_RUNTIME_DIR) : runtimeDir(ROOT, env);
 }
 
 export function runtimeFiles(runtimeDir, name) {

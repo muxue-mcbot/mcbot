@@ -11,6 +11,7 @@ import { spawn } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { connectionFileOf, gameDirOf, gameType, readGameConfig, writeGameConfig } from './webui-games.mjs';
 import { disabledPlugins } from './webui-plugins.mjs';
+import { memoryDir, runtimeDir } from './paths.mjs';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const FILE = 'webui-profiles.json';
@@ -32,7 +33,7 @@ export const AGENTS = Object.freeze({
   // dsh 的思考强度只有 low、high、max（medium 会被当成 high）
   dsh: { label: 'dsh（DeepSeek）', efforts: ['low', 'high', 'max'],
     fallbackModels: [], accountRe: /^\.dsh$/,
-    accountHint: 'DSH_HOME；留空则使用仓库中的 runtime/dsh/home，填写 ~/.dsh 则使用桌面版已配置的凭据' },
+    accountHint: 'DSH_HOME；留空则使用数据目录中的 runtime/dsh/home，填写 ~/.dsh 则使用桌面版已配置的凭据' },
 });
 
 /** 会话选项：null 表示用驱动器默认值。 */
@@ -232,7 +233,7 @@ export function profileConnection(profile) {
  */
 export function inspectMemory(dir, agent = 'claude', root = ROOT) {
   let base = '';
-  try { base = dir ? checkPath(dir, '记忆目录') : agent === 'claude' ? path.join(root, 'memory') : path.join(root, 'runtime', `${agent}-memory`); } catch (e) { return { ok: false, error: e.message }; }
+  try { base = dir ? checkPath(dir, '记忆目录') : agent === 'claude' ? memoryDir(root) : path.join(runtimeDir(root), `${agent}-memory`); } catch (e) { return { ok: false, error: e.message }; }
   let players = [];
   try { players = fs.readdirSync(path.join(base, 'shared', 'players')).filter((n) => /^[A-Za-z0-9_]{1,16}\.md$/.test(n)).map((n) => n.slice(0, -3)).sort(); } catch { /* 没有就空着 */ }
   return { ok: true, players, text: players.length ? `玩家档案：${players.join('、')}` : `${dir ? '此目录' : '默认位置 ' + base}中没有玩家档案（shared/players）` };

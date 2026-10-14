@@ -9,6 +9,7 @@ import { spawn } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { codexCommand } from './agents/codex-app-server.mjs';
 import { dshCommand, writeDshPatch } from './agents/dsh-acp.mjs';
+import { runtimeDir } from './paths.mjs';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const TIMEOUT_MS = 45000;
@@ -103,9 +104,9 @@ export function dshModelsFrom(configOptions) {
 }
 
 async function dshModels(configDir) {
-  const patchFile = writeDshPatch(path.join(ROOT, 'runtime', 'webui-dsh-probe.dsh-patch.yml'));
+  const patchFile = writeDshPatch(path.join(runtimeDir(), 'webui-dsh-probe.dsh-patch.yml'));
   const { cmd, a } = dshCommand({ root: ROOT, patchFile });
-  const env = { ...process.env, DSH_HOME: configDir || process.env.DSH_HOME || path.join(ROOT, 'runtime', 'dsh', 'home'), ELECTRON_RUN_AS_NODE: '1' };
+  const env = { ...process.env, DSH_HOME: configDir || process.env.DSH_HOME || path.join(runtimeDir(), 'dsh', 'home'), ELECTRON_RUN_AS_NODE: '1' };
   return runLines(cmd, a, {
     env,
     onStart: (send) => send({ jsonrpc: '2.0', id: 1, method: 'initialize', params: { protocolVersion: 1,

@@ -103,6 +103,21 @@ test('WebUI 服务：只听本机，要令牌 Cookie，拒绝别的 Host', async
   } finally { await web.close(); fs.rmSync(dir, { recursive: true, force: true }); }
 });
 
+test('「设置」页：给出程序目录和数据目录，打开数据目录前先建好它', async () => {
+  const dir = tmp(), data = path.join(dir, 'data'), opened = [];
+  const web = createWebServer({ runtime: dir, token: 'ab12', data, open: (d) => { opened.push(d); return true; } });
+  try {
+    const port = await web.listen(0), base = `http://127.0.0.1:${port}`;
+    const cookie = (await fetch(`${base}/?t=ab12`, { redirect: 'manual' })).headers.get('set-cookie').split(';')[0];
+    const about = await (await fetch(`${base}/api/about`, { headers: { cookie } })).json();
+    assert.equal(about.data, data); assert.equal(about.program, path.resolve(import.meta.dirname, '..', '..')); assert.equal(about.installed, false, '仓库里没有安装标记');
+    assert.equal((await fetch(`${base}/api/open-data-dir`, { headers: { cookie } })).status, 404, '只接受 POST');
+    assert.equal((await fetch(`${base}/api/open-data-dir`, { method: 'POST' })).status, 403, '要令牌');
+    assert.deepEqual(await (await fetch(`${base}/api/open-data-dir`, { method: 'POST', headers: { cookie } })).json(), { ok: true });
+    assert.deepEqual(opened, [data]); assert.ok(fs.statSync(data).isDirectory());
+  } finally { await web.close(); fs.rmSync(dir, { recursive: true, force: true }); }
+});
+
 // ---- 配置页 ----
 // 配置只记游戏目录：连接文件在 <游戏目录>/config/mcbot-server-control/connection.json
 const gameOf = (dir) => path.join(dir, 'game');

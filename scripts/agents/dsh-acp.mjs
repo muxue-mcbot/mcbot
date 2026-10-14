@@ -3,6 +3,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { SERVER_GAME_INSTRUCTIONS } from './game-instructions.mjs';
+import { runtimeDir } from '../paths.mjs';
 
 // 只在核对过的版本上承诺行为；dsh 还在开发者预览，升级前要重测。
 export const DSH_VERSION = '0.2.0-rc.2';
@@ -71,11 +72,11 @@ export function desktopDsh(env = process.env) {
 }
 
 /**
- * 找 dsh 的顺序：MCBOT_DSH_BIN（别处的 bin.js）> MCBOT_DSH_DESKTOP（指定的桌面版目录）> 仓库 runtime/dsh 的锁定安装 > 默认位置的桌面版。
+ * 找 dsh 的顺序：MCBOT_DSH_BIN（别处的 bin.js）> MCBOT_DSH_DESKTOP（指定的桌面版目录）> 数据目录 runtime/dsh 的锁定安装 > 默认位置的桌面版。
  */
 export function dshCommand({ root, patchFile, env = process.env }) {
   const profile = ['--profile', 'acp', '--patch', patchFile];
-  const locked = path.join(root, 'runtime', 'dsh', 'node_modules', '@deepseek-ai', 'dsh', 'lib', 'bin.js');
+  const locked = path.join(runtimeDir(root, env), 'dsh', 'node_modules', '@deepseek-ai', 'dsh', 'lib', 'bin.js');
   let command;
   if (env.MCBOT_DSH_BIN) {
     const bin = path.resolve(env.MCBOT_DSH_BIN);

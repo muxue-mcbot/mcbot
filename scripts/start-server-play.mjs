@@ -11,6 +11,7 @@ import { spawn } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { respawnIfDead } from './server-body-control.mjs';
 import { RECONNECT_EXIT } from './companion.mjs';
+import { runtimeDir } from './paths.mjs';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const AGENTS = ['claude', 'codex', 'dsh'];
@@ -104,13 +105,13 @@ export function prepareServerPlay(options, { root = ROOT, env = process.env, exe
   if (!prepareOnly && !fs.existsSync(entry)) throw new Error('未找到运行端：请先在 client-runtime 目录运行 npm install 和 npm run build');
   // dsh 用 DeepSeek Harness 桌面版自带的，或 runtime/dsh 的锁定安装（见 docs/dev.md）；DeepSeek 凭据用 DEEPSEEK_API_KEY 或 dsh 自己的凭据配置提供，这里不读取。
   if (agent === 'dsh' && !prepareOnly && !env.MCBOT_DSH_BIN) {
-    const dshBin = path.join(root, 'runtime', 'dsh', 'node_modules', '@deepseek-ai', 'dsh', 'lib', 'bin.js');
+    const dshBin = path.join(runtimeDir(root, env), 'dsh', 'node_modules', '@deepseek-ai', 'dsh', 'lib', 'bin.js');
     const desktop = env.MCBOT_DSH_DESKTOP || path.join(env.LOCALAPPDATA || '', 'Programs', 'DeepSeek Harness');
     if (!fs.existsSync(dshBin) && !fs.existsSync(path.join(desktop, 'DeepSeek Harness.exe'))) {
       throw new Error('未找到 dsh：请安装 DeepSeek Harness 桌面版，或在 runtime/dsh 中运行 npm install --save-exact @deepseek-ai/dsh@0.2.0-rc.2');
     }
   }
-  const playDir = path.join(root, 'runtime', 'server-play', name);
+  const playDir = path.join(runtimeDir(root, env), 'server-play', name);
   fs.mkdirSync(playDir, { recursive: true });
   const configFile = path.join(playDir, 'mcp.json');
   const mcpArgs = [entry, '--body', 'server', '--connection-file', connectionPath, '--username', name, '--nickname', nickname,
@@ -171,7 +172,7 @@ function runDriver(prepared, respawned) {
 }
 
 /** --wait：等到能接管再启动托管，断开了回去等；返回最后的退出码。 */
-export async function supervise(options, { runtime = process.env.COMPANION_RUNTIME_DIR ? path.resolve(process.env.COMPANION_RUNTIME_DIR) : path.join(ROOT, 'runtime'),
+export async function supervise(options, { runtime = process.env.COMPANION_RUNTIME_DIR ? path.resolve(process.env.COMPANION_RUNTIME_DIR) : runtimeDir(),
   check = readiness, prepare = prepareServerPlay, run = runDriver, sleep = (ms) => new Promise((r) => setTimeout(r, ms)), log = console.log, now = Date.now, pollMs = 2000 } = {}) {
   if (!options['connection-file']) throw new Error('请提供游戏目录中的 config/mcbot-server-control/connection.json（--connection-file）');
   const connectionPath = full(options['connection-file']);

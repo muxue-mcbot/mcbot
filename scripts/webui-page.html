@@ -219,6 +219,8 @@ input.sw:focus-visible{outline:2px solid var(--primary);outline-offset:2px}
 .mode-row{display:flex;align-items:center;gap:10px;margin-bottom:10px}.mode-row #g-refresh{margin-left:auto}
 .fields.addr{margin-top:16px}
 .ro{padding:10px 14px;border-radius:12px;background:var(--fill);color:var(--muted);font-size:14px;cursor:default}
+.settings{display:flex;flex-direction:column;gap:16px}.settings h2{margin:0}.settings .ro{word-break:break-all;user-select:text;cursor:text}
+.row-btns{display:flex;align-items:center;gap:12px;flex-wrap:wrap}
 .wait-note{margin:12px 0 0}
 .game-mode-note{margin:6px 0 0}
 .pane-note button{margin-left:auto}
@@ -319,7 +321,8 @@ textarea:focus{border-color:var(--primary);background:var(--glass-strong);box-sh
 <div class="shell">
 <aside id="side"><div class="brand"><i></i>mcbot</div><div class="brand-sub">本地控制台</div>
 <nav><button class="nav-item on" id="tab-monitor"><svg class="i" viewBox="0 0 24 24"><path d="M3 12h4l3-8 4 16 3-8h4"/></svg>监控<span class="pip"></span></button>
-<button class="nav-item" id="tab-config"><svg class="i" viewBox="0 0 24 24"><path d="M4 6h10M18 6h2M4 12h4M12 12h8M4 18h12"/><circle cx="16" cy="6" r="2"/><circle cx="10" cy="12" r="2"/><circle cx="18" cy="18" r="2"/></svg>配置<span class="pip"></span></button></nav>
+<button class="nav-item" id="tab-config"><svg class="i" viewBox="0 0 24 24"><path d="M4 6h10M18 6h2M4 12h4M12 12h8M4 18h12"/><circle cx="16" cy="6" r="2"/><circle cx="10" cy="12" r="2"/><circle cx="18" cy="18" r="2"/></svg>配置<span class="pip"></span></button>
+<button class="nav-item" id="tab-settings"><svg class="i" viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M12 3v3M12 18v3M3 12h3M18 12h3M5.6 5.6l2.1 2.1M16.3 16.3l2.1 2.1M5.6 18.4l2.1-2.1M16.3 7.7l2.1-2.1"/></svg>设置<span class="pip"></span></button></nav>
 <div class="side-foot"><button class="wide" id="theme-btn">主题：跟随系统</button><div class="note">仅本机可见</div></div></aside>
 <div class="scrim" id="scrim"></div>
 <div class="content">
@@ -424,6 +427,13 @@ textarea:focus{border-color:var(--primary);background:var(--glass-strong);box-sh
 <div class="actions"><button type="submit">保存</button><button type="button" class="primary" id="c-launch">保存并启动托管</button><button type="button" class="danger" id="c-stop">停止托管</button><span style="flex:1"></span><button type="button" class="ghost" id="c-del">删除此配置</button></div>
 <div id="c-msg"></div><div class="status" id="c-status" hidden></div>
 </form></div></section>
+
+<section class="view" id="view-settings" hidden><div class="form glass settings">
+<h2>设置</h2>
+<div class="f"><span class="lb">数据目录</span><div class="ro" id="s-data">读取中</div><span class="hint">人设、记忆、配置和下载的模组保存在此目录；卸载 mcbot 时可选择保留或删除</span></div>
+<div class="f"><span class="lb">程序目录</span><div class="ro" id="s-program">读取中</div></div>
+<div class="row-btns"><button type="button" class="ghost" id="s-open">打开数据目录</button><span class="hint" id="s-open-msg"></span></div>
+</div></section>
 </div></div>
 <div class="dlg-wrap" id="p-dlg" hidden><div class="dlg glass" role="dialog" aria-modal="true" aria-labelledby="p-dlg-title">
 <h3 id="p-dlg-title"></h3><ul id="p-steps"></ul><div class="notes" id="p-notes"></div>
@@ -1179,13 +1189,15 @@ function tabDots() {
 function placeThumb(seg) { const on = $('button.on', seg), t = $('.thumb', seg); if (!on || !on.offsetWidth) return; t.style.left = on.offsetLeft + 'px'; t.style.width = on.offsetWidth + 'px'; }
 
 // ---- 页面切换、菜单、主题 ----
+const TABS = { monitor: '监控', config: '配置', settings: '设置' };
 function setTab(t) {
-  $('#view-monitor').hidden = t !== 'monitor'; $('#view-config').hidden = t !== 'config';
-  $('#tab-monitor').classList.toggle('on', t === 'monitor'); $('#tab-config').classList.toggle('on', t === 'config');
+  if (!TABS[t]) t = 'monitor';
+  for (const k of Object.keys(TABS)) { $('#view-' + k).hidden = t !== k; $('#tab-' + k).classList.toggle('on', t === k); }
   store.set('mcbot.tab', t); clearInterval(cfgTimer); closeAll();
-  const c = $('#crumb'); c.textContent = t === 'config' ? '配置' : '监控'; c.classList.remove('swap'); void c.offsetWidth; c.classList.add('swap');
+  const c = $('#crumb'); c.textContent = TABS[t]; c.classList.remove('swap'); void c.offsetWidth; c.classList.add('swap');
   $('#live').hidden = t !== 'monitor'; document.body.classList.remove('nav-open');
-  const v = $(t === 'config' ? '#view-config' : '#view-monitor'); v.classList.remove('enter'); void v.offsetWidth; v.classList.add('enter');
+  const v = $('#view-' + t); v.classList.remove('enter'); void v.offsetWidth; v.classList.add('enter');
+  if (t === 'settings') loadSettings();
   if (t === 'config') {
     loadCfg(); loadGames(); let n = 0;
     // 游戏列表会问每个世界运行中没有，刷新慢一点
@@ -1193,7 +1205,19 @@ function setTab(t) {
     requestAnimationFrame(() => { placeThumb($('#c-tabs')); placeThumb($('#c-cred')); });
   }
 }
-$('#tab-monitor').onclick = () => setTab('monitor'); $('#tab-config').onclick = () => setTab('config');
+for (const k of Object.keys(TABS)) $('#tab-' + k).onclick = () => setTab(k);
+// 「设置」页：数据目录和程序目录（docs/update_design.md 第一节）
+async function loadSettings() {
+  try {
+    const r = await api('/api/about');
+    $('#s-data').textContent = r.data; $('#s-program').textContent = r.program;
+  } catch { $('#s-data').textContent = $('#s-program').textContent = '无法读取'; }
+}
+$('#s-open').onclick = async () => {
+  const msg = $('#s-open-msg'); msg.textContent = '';
+  try { const r = await api('/api/open-data-dir', { method: 'POST' }); if (!r.ok) msg.textContent = r.error || '无法打开'; }
+  catch { msg.textContent = '无法连接 WebUI'; }
+};
 $('#menu').onclick = () => document.body.classList.toggle('nav-open'); $('#scrim').onclick = () => document.body.classList.remove('nav-open');
 window.addEventListener('resize', () => { placeThumb($('#c-tabs')); placeThumb($('#c-cred')); placeThumb($('#c-mode')); });
 // 主题：跟随系统 → 亮色 → 暗色，记在本浏览器里
