@@ -16,6 +16,7 @@ import { gameRunState, javaProcesses, runMessage } from './game-processes.mjs';
 import { deleteDay, deleteLine, readDay, viewMemory } from './webui-memory.mjs';
 import { HEARTBEAT_FRESH_MS } from './host-timing.mjs';
 import { PROGRAM_DIR, dataDir, isInstalled, runtimeDir } from './paths.mjs';
+import { createUpdater, dismissNotice } from './webui-update.mjs';
 
 const NAME_RE = /^[A-Za-z0-9_]{1,16}$/;
 const FIRST_READ_BYTES = 128 * 1024;
@@ -134,7 +135,7 @@ function openFolder(dir) {
   return true;
 }
 
-export function createWebServer({ runtime, token = crypto.randomBytes(24).toString('hex'), launcher, models, games, plugins = {}, data = dataDir(), open = openFolder }) {
+export function createWebServer({ runtime, token = crypto.randomBytes(24).toString('hex'), launcher, models, games, plugins = {}, data = dataDir(), open = openFolder, updater }) {
   let port = 0;
   // 插件页：catalog、downloads、fetchImpl、online、knownGames 都能换掉（测试用）
   const pluginOpts = { downloads: path.join(runtime, 'mod-downloads'), online: (dir) => gameOnline(connectionFileOf(dir)), listProcesses: javaProcesses, ...plugins };
@@ -142,6 +143,12 @@ export function createWebServer({ runtime, token = crypto.randomBytes(24).toStri
   const knownGames = plugins.knownGames || (() => findGames(runtime));
   launcher ||= createLauncher({ runtime, isRunning: (name) => !!listBots(runtime).find((b) => b.name === name)?.running });
   models ||= createModelCatalog({ runtime });
+  // 主程序更新（webui-update.mjs）：插件页在装卸、有 Bot 在托管时不更新（等世界的托管由 updater 自己查进程）
+  updater ||= createUpdater({ runtime, busy: async () => {
+    const job = pluginJobs.status();
+    if (job && !job.done) return '插件安装尚未完成：请等待完成后再更新';
+    return listBots(runtime).some((b) => b.running) ? '有 Bot 正在托管：请先停止托管' : '';
+  } });
   const allowedHost = (host) => host === `127.0.0.1:${port}` || host === `localhost:${port}`;
   // POST 再查一次来源：浏览器带了 Origin 就必须是本页
   const allowedOrigin = (origin) => !origin || origin === `http://127.0.0.1:${port}` || origin === `http://localhost:${port}`;
@@ -175,7 +182,7 @@ export function createWebServer({ runtime, token = crypto.randomBytes(24).toStri
     }
     if (!authed) return send(res, 403, { error: 'unauthorized' });
     if (req.method === 'POST' && !allowedOrigin(req.headers.origin)) return send(res, 403, { error: 'origin not allowed' });
-    if (url.pathname.startsWith('/api/profiles') || url.pathname.startsWith('/api/games') || url.pathname.startsWith('/api/persona') || url.pathname === '/api/memory' || url.pathname.startsWith('/api/memory/') || url.pathname === '/api/models' || url.pathname.startsWith('/api/appearances') || url.pathname.startsWith('/api/plugins')) {
+    if (url.pathname.startsWith('/api/profiles') || url.pathname.startsWith('/api/games') || url.pathname.startsWith('/api/persona') || url.pathname === '/api/memory' || url.pathname.startsWith('/api/memory/') || url.pathname === '/api/models' || url.pathname.startsWith('/api/appearances') || url.pathname.startsWith('/api/plugins') || url.pathname.startsWith('/api/update') || url.pathname === '/api/notices/dismiss') {
       handleProfiles(req, res, url).catch((e) => send(res, 400, { ok: false, error: e.message }));
       return;
     }
@@ -213,10 +220,15 @@ export function createWebServer({ runtime, token = crypto.randomBytes(24).toStri
       return send(res, 200, await models.get(agent, account, url.searchParams.get('refresh') === '1'));
     }
     if (req.method === 'GET' && p === '/api/plugins/job') return send(res, 200, { ok: true, job: pluginJobs.status() });
+    if (req.method === 'GET' && p === '/api/update') return send(res, 200, updater.view());
     if (req.method !== 'POST') return send(res, 404, { error: 'not found' });
     if (!/^application\/json\b/.test(req.headers['content-type'] || '')) return send(res, 415, { ok: false, error: '请求须为 JSON' });
     // 导入模型时文件以 base64 放在 JSON 里，单独放宽上限
     const body = await readBody(req, p === '/api/appearances/import' ? Math.ceil(MODEL_IMPORT_MAX * 1.4) : MAX_BODY_BYTES);
+    // 「设置」页的检查更新、页面顶部的「更新」、公告的「知道了」
+    if (p === '/api/update/check') { await updater.check(); return send(res, 200, updater.view()); }
+    if (p === '/api/update/start') { const r = await updater.start(); return send(res, r.ok ? 200 : 409, r); }
+    if (p === '/api/notices/dismiss') return send(res, 200, dismissNotice(runtime, body.id));
     if (p === '/api/appearances') {
       // 按选中的游戏目录问：连接文件在目录里的固定位置
       // 和插件页一样只接受游戏列表里的目录，不然已登录的请求可以列任意目录的模组和模型
@@ -301,7 +313,7 @@ export function createWebServer({ runtime, token = crypto.randomBytes(24).toStri
     send(res, 404, { error: 'not found' });
   }
   return {
-    server, token,
+    server, token, updater,
     listen: (p) => new Promise((resolve, reject) => {
       server.once('error', reject);
       server.listen(p, '127.0.0.1', () => { port = server.address().port; resolve(port); });
@@ -323,6 +335,8 @@ if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.me
     const url = `http://127.0.0.1:${port}/?t=${web.token}`;
     console.log(`mcbot WebUI：${url}`);
     console.log(`读取 ${opts.runtime}；按 Ctrl+C 退出（正在托管的 Bot 不受影响）`);
+    // 打开时在后台检查一次更新，只提示；读不到也不报错，页面的「设置」中显示检查失败
+    web.updater.check().catch(() => {});
     if (opts.open && process.platform === 'win32') {
       import('node:child_process').then(({ spawn }) => spawn('cmd', ['/c', 'start', '', url], { detached: true, stdio: 'ignore', windowsHide: true }).unref());
     }

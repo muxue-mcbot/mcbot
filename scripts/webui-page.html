@@ -221,6 +221,13 @@ input.sw:focus-visible{outline:2px solid var(--primary);outline-offset:2px}
 .ro{padding:10px 14px;border-radius:12px;background:var(--fill);color:var(--muted);font-size:14px;cursor:default}
 .settings{display:flex;flex-direction:column;gap:16px}.settings h2{margin:0}.settings .ro{word-break:break-all;user-select:text;cursor:text}
 .row-btns{display:flex;align-items:center;gap:12px;flex-wrap:wrap}
+.upd{margin:10px 8px 0;padding:10px 16px;display:flex;flex-direction:column;gap:8px;animation:enter .3s ease}
+.upd .row-btns{gap:10px}.upd .grow{flex:1}.upd a{color:var(--primary-strong);font-size:12px}
+.upd ul,.settings ul.upd-notes{margin:0;padding-left:18px;font-size:13px;color:var(--muted);display:flex;flex-direction:column;gap:2px}
+.upd .err,.settings .err{color:var(--err);font-size:12.5px}
+.notice{padding:10px 14px;border-radius:12px;background:var(--fill);font-size:13px;display:flex;flex-direction:column;gap:4px}
+.notice.warn{background:var(--err-soft)}.notice .meta{color:var(--muted);font-size:12px}.notice .text,.dlg .text{white-space:pre-wrap;word-break:break-word}
+.settings h3{margin:4px 0 0;font-size:14px}
 .wait-note{margin:12px 0 0}
 .game-mode-note{margin:6px 0 0}
 .pane-note button{margin-left:auto}
@@ -329,6 +336,12 @@ textarea:focus{border-color:var(--primary);background:var(--glass-strong);box-sh
 <header class="topbar"><button class="icon ghost" id="menu" aria-label="菜单"><svg class="i" viewBox="0 0 24 24"><path d="M4 7h16M4 12h16M4 17h10"/></svg></button>
 <span class="crumb">mcbot<span>/</span><b id="crumb">监控</b></span><span class="grow"></span><span class="live" id="live"><span class="dot on"></span>每 1.5 秒刷新</span></header>
 
+<div class="upd glass" id="upd" hidden>
+<div class="row-btns"><span id="upd-text"></span><span class="grow"></span>
+<button type="button" class="ghost small" id="upd-more">查看更新说明</button><a id="upd-link" target="_blank" rel="noopener noreferrer">在浏览器中下载</a>
+<button type="button" class="primary small" id="upd-go">更新</button><button type="button" class="ghost small" id="upd-later">稍后提醒</button></div>
+<ul id="upd-notes" hidden></ul><div class="err" id="upd-err" hidden></div></div>
+
 <main class="view" id="view-monitor"><div class="grid">
 <div class="col"><div class="col-title">托管中的 Bot</div><section class="list" id="bots"></section></div>
 <section class="feed glass"><div class="bar"><span id="title">请选择左侧的 Bot</span><span style="flex:1"></span>
@@ -433,12 +446,21 @@ textarea:focus{border-color:var(--primary);background:var(--glass-strong);box-sh
 <div class="f"><span class="lb">数据目录</span><div class="ro" id="s-data">读取中</div><span class="hint">人设、记忆、配置和下载的模组保存在此目录；卸载 mcbot 时可选择保留或删除</span></div>
 <div class="f"><span class="lb">程序目录</span><div class="ro" id="s-program">读取中</div></div>
 <div class="row-btns"><button type="button" class="ghost" id="s-open">打开数据目录</button><span class="hint" id="s-open-msg"></span></div>
+<h3>版本</h3>
+<div class="f"><span class="lb">当前版本</span><div class="ro" id="s-version">读取中</div><span class="hint" id="s-check-msg"></span></div>
+<ul class="upd-notes" id="s-notes" hidden></ul>
+<div class="row-btns"><button type="button" class="ghost" id="s-check">检查更新</button></div>
+<h3>公告</h3>
+<div id="s-notices" class="list"></div>
 </div></section>
 </div></div>
 <div class="dlg-wrap" id="p-dlg" hidden><div class="dlg glass" role="dialog" aria-modal="true" aria-labelledby="p-dlg-title">
 <h3 id="p-dlg-title"></h3><ul id="p-steps"></ul><div class="notes" id="p-notes"></div>
 <div class="prog" id="p-prog" hidden><i></i></div><div class="msg" id="p-msg"></div>
 <div class="actions"><button type="button" class="primary" id="p-ok">确认</button><button type="button" class="ghost" id="p-cancel">取消</button></div></div></div>
+<div class="dlg-wrap" id="n-dlg" hidden><div class="dlg glass" role="dialog" aria-modal="true" aria-labelledby="n-dlg-title">
+<h3 id="n-dlg-title"></h3><div class="notes" id="n-dlg-meta"></div><div class="msg text" id="n-dlg-text"></div>
+<div class="actions"><button type="button" class="primary" id="n-ok">知道了</button></div></div></div>
 <script>
 const $ = (s, r = document) => r.querySelector(s);
 const el = (tag, cls, text) => { const n = document.createElement(tag); if (cls) n.className = cls; if (text !== undefined) n.textContent = text; return n; };
@@ -1213,6 +1235,84 @@ async function loadSettings() {
     $('#s-data').textContent = r.data; $('#s-program').textContent = r.program;
   } catch { $('#s-data').textContent = $('#s-program').textContent = '无法读取'; }
 }
+// ---- 主程序更新和公告（scripts/webui-update.mjs）：WebUI 打开时后台检查，有新版本只提示 ----
+let upd = null, updTimer = 0, updLater = false;
+const mb = (n) => (n / 1048576).toFixed(1) + ' MB';
+const when = (t) => new Date(t).toLocaleString('zh-CN', { hour12: false, month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' });
+async function loadUpdate() {
+  clearTimeout(updTimer);
+  try { upd = await api('/api/update'); } catch { upd = null; }
+  renderUpdate();
+  // 检查中、下载中时每秒刷新，其余时间每 10 分钟读一次（服务器端只在打开时和点击「检查更新」时联网）
+  const fast = upd && (upd.checking || (upd.job && ['download', 'launch', 'exiting'].includes(upd.job.phase)));
+  updTimer = setTimeout(loadUpdate, fast ? 1000 : 600000);
+}
+function renderUpdate() {
+  const u = upd, bar = $('#upd'), job = u && u.job;
+  const active = !!job && job.phase !== 'error';
+  bar.hidden = !u || !(u.available || active) || (updLater && !active);
+  if (u && u.latest) {
+    $('#upd-link').href = u.latest.url;
+    $('#upd-notes').replaceChildren(...u.latest.notes.map((s) => el('li', '', s)));
+    $('#upd-more').hidden = !u.latest.notes.length;
+  }
+  if (!bar.hidden) {
+    $('#upd-text').textContent = !active ? '有新版本 ' + u.latest.version + (u.latest.date ? '（' + u.latest.date + '）' : '') + '，当前版本 ' + u.current
+      : job.phase === 'download' ? '正在下载新版本 ' + u.latest.version + (job.total ? '：' + mb(job.bytes) + ' / ' + mb(job.total) : '')
+      : '正在安装新版本，安装完成后将自动重新打开 WebUI；可关闭此页面';
+    $('#upd-go').hidden = $('#upd-later').hidden = active;
+    const err = job && job.phase === 'error' ? job.error : '';
+    $('#upd-err').hidden = !err; $('#upd-err').textContent = err;
+  }
+  // 「设置」页
+  $('#s-version').textContent = u ? u.current : '无法读取';
+  let msg = '';
+  if (u && u.checking) msg = '正在检查更新';
+  else if (u && u.error && !u.checkedAt) msg = '检查更新失败：' + u.error;
+  else if (u && u.checkedAt) msg = (u.error ? '检查更新失败：' + u.error + '；上次检查（' + when(u.checkedAt) + '）：' : '检查于 ' + when(u.checkedAt) + '：')
+    + (u.available ? '有新版本 ' + u.latest.version : '已是最新版本');
+  $('#s-check-msg').textContent = msg;
+  $('#s-check').disabled = !!(u && u.checking);
+  const sn = $('#s-notes'); sn.hidden = !(u && u.available && u.latest.notes.length);
+  if (u && u.latest) sn.replaceChildren(...u.latest.notes.map((s) => el('li', '', s)));
+  $('#s-notices').replaceChildren(...(u && u.notices.length ? u.notices.slice().reverse().map(noticeCard) : [el('div', 'hint', '暂无公告')]));
+  if (u && u.popup.length && $('#n-dlg').hidden) showNotice(u.popup[0]);
+}
+function noticeCard(n) {
+  const c = el('div', 'notice' + (n.level === 'warn' ? ' warn' : ''));
+  c.append(el('b', '', n.title), el('span', 'meta', [n.date, n.level === 'warn' ? '重要' : '', n.expired ? '已过期' : ''].filter(Boolean).join(' · ')), el('div', 'text', n.text));
+  return c;
+}
+function showNotice(n) {
+  $('#n-dlg-title').textContent = n.title;
+  $('#n-dlg-meta').textContent = [n.date, n.level === 'warn' ? '重要' : ''].filter(Boolean).join(' · ');
+  $('#n-dlg-text').textContent = n.text;
+  $('#n-ok').dataset.id = n.id; $('#n-dlg').hidden = false; $('#n-ok').focus();
+}
+$('#n-ok').onclick = async () => {
+  const id = $('#n-ok').dataset.id; $('#n-dlg').hidden = true;
+  try { await post('/api/notices/dismiss', { id }); } catch { /* 下次打开时再弹 */ }
+  if (upd) { upd.popup = upd.popup.filter((n) => n.id !== id); renderUpdate(); }
+};
+$('#upd-more').onclick = () => { const n = $('#upd-notes'); n.hidden = !n.hidden; $('#upd-more').textContent = n.hidden ? '查看更新说明' : '收起更新说明'; };
+$('#upd-later').onclick = () => { updLater = true; renderUpdate(); };
+$('#upd-go').onclick = async () => {
+  if (!upd || !upd.latest || !confirm('更新到 ' + upd.latest.version + '？将下载安装包（' + mb(upd.latest.size) + '），下载完成后关闭 WebUI 并安装，安装完成后自动重新打开')) return;
+  $('#upd-go').disabled = true;
+  try {
+    const r = await post('/api/update/start', {});
+    if (!r.ok) { $('#upd-err').hidden = false; $('#upd-err').textContent = r.error; }
+  } catch { $('#upd-err').hidden = false; $('#upd-err').textContent = '无法连接 WebUI'; }
+  $('#upd-go').disabled = false;
+  if (!$('#upd-err').hidden) return;
+  loadUpdate();
+};
+$('#s-check').onclick = async () => {
+  $('#s-check').disabled = true; $('#s-check-msg').textContent = '正在检查更新';
+  try { upd = await post('/api/update/check', {}); updLater = false; } catch { $('#s-check-msg').textContent = '无法连接 WebUI'; }
+  renderUpdate();
+};
+loadUpdate();
 $('#s-open').onclick = async () => {
   const msg = $('#s-open-msg'); msg.textContent = '';
   try { const r = await api('/api/open-data-dir', { method: 'POST' }); if (!r.ok) msg.textContent = r.error || '无法打开'; }

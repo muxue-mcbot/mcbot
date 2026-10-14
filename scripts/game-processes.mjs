@@ -30,20 +30,24 @@ export function commandLineUsesDir(cmd, gameDir) {
 }
 
 // 输出按 UTF-8：控制台默认是系统代码页（中文系统是 GBK），带中文的游戏目录会被 Node 读成乱码而对不上。
-const PS_LIST = "[Console]::OutputEncoding = [Text.Encoding]::UTF8; Get-CimInstance Win32_Process | Where-Object { $_.Name -in @('javaw.exe','java.exe') } | Select-Object ProcessId,CommandLine | ConvertTo-Json -Compress";
+const psList = (names) => "[Console]::OutputEncoding = [Text.Encoding]::UTF8; Get-CimInstance Win32_Process | Where-Object { $_.Name -in @(" + names.map((n) => `'${n}'`).join(',') + ") } | Select-Object ProcessId,CommandLine | ConvertTo-Json -Compress";
 
 /** 列出 java/javaw 进程（pid 和命令行）。先用 pwsh；没装 PowerShell 7 的电脑（Windows 自带的只有 5.1）用 powershell.exe；都查不了就 reject。 */
-export async function javaProcesses({ timeoutMs = 8000, shells = ['pwsh', 'powershell.exe'] } = {}) {
+export const javaProcesses = (opts) => processesNamed(['javaw.exe', 'java.exe'], opts);
+/** 列出 node 进程（主程序更新前查有没有托管在跑，webui-update.mjs）。 */
+export const nodeProcesses = (opts) => processesNamed(['node.exe'], opts);
+
+async function processesNamed(names, { timeoutMs = 8000, shells = ['pwsh', 'powershell.exe'] } = {}) {
   let last;
   for (const shell of shells) {
-    try { return await listWith(shell, timeoutMs); } catch (e) { last = e; }
+    try { return await listWith(shell, psList(names), timeoutMs); } catch (e) { last = e; }
   }
   throw last || new Error('无法查询进程列表');
 }
 
-function listWith(shell, timeoutMs) {
+function listWith(shell, command, timeoutMs) {
   return new Promise((resolve, reject) => {
-    execFile(shell, ['-NoProfile', '-NonInteractive', '-Command', PS_LIST], { timeout: timeoutMs, windowsHide: true, maxBuffer: 8 * 1024 * 1024, encoding: 'utf8' }, (err, stdout) => {
+    execFile(shell, ['-NoProfile', '-NonInteractive', '-Command', command], { timeout: timeoutMs, windowsHide: true, maxBuffer: 8 * 1024 * 1024, encoding: 'utf8' }, (err, stdout) => {
       if (err) return reject(new Error('无法查询进程列表'));
       const text = String(stdout ?? '').trim();
       if (!text) return resolve([]);
