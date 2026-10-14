@@ -18,7 +18,7 @@ export const ENTRIES = ['webui.mjs', 'start-server-play.mjs', 'companion.mjs'];
 export const RUNTIME_FILES = ['package.json', 'package-lock.json', 'README.md', 'tool-registry.json', 'player-stop.json', 'memory-limits.json', 'host-timing.json'];
 export const ASSETS = ['webui-page.html'];
 const TOP_FILES = ['compat.json', 'LICENSE', 'NOTICE', 'CLAUDE.md'];
-// 安装标记：程序目录里有它就是安装版，数据放 %LOCALAPPDATA%mcbot（scripts/paths.mjs 认这个文件名，不能改）
+// 安装标记：程序目录里有它就是安装版，数据放 %LOCALAPPDATA%\mcbot（scripts/paths.mjs 认这个文件名，不能改）
 export const INSTALL_MARKER = 'install.json';
 // 程序目录里不该有的用户数据目录：目标目录里有它们就拒绝打包，免得连数据一起删掉
 export const DATA_DIRS = ['runtime', 'memory'];
