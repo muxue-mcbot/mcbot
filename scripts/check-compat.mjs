@@ -1,10 +1,11 @@
 #!/usr/bin/env node
-// 核对 compat.json 和各模组代码里锁的版本是否一致：平台版本、jar 名、被适配模组的 mod id 和确切版本。
+// 核对 compat.json 和各模组代码里锁的版本是否一致：平台版本、jar 名、被适配模组的 mod id 和确切版本。还核对版本号（主程序和核心同版本、插件的 coreMin）。
 // 还核对每个附属模组登记的 id：命名空间必须是它 requires 里的 mod id（运行端的「给 AI 用」开关按这个对应关系过滤）。
 // 用法：node scripts/check-compat.mjs [compat.json]；有不一致时列出来并以 1 退出。
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { parseVersion, compareVersions } from './version.mjs';
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 
@@ -63,6 +64,37 @@ export function registeredIds(sources) {
   return { ids: [...new Set(ids)], unresolved };
 }
 
+const validVersion = (v) => { try { parseVersion(v); return true; } catch { return false; } };
+
+/**
+ * 版本号（set-version.mjs 改的那几处）：主程序和核心同一个版本（运行端 package.json 和 lock、核心 mod_version）；
+ * 每个插件的 coreMin 不高于核心版本，和它 gradle.properties 的 core_min 一致；mods.toml 里对核心的要求用 core_min，
+ * build.gradle 里核心的 jar 名跟着核心的 mod_version 走，不写死。
+ */
+function checkVersions(compat, coreVersion) {
+  const problems = [];
+  if (!validVersion(coreVersion)) return [`核心的 mod_version 不是 0.0.1 这样的版本号：${coreVersion}`];
+  const pkg = JSON.parse(fs.readFileSync(path.join(root, 'client-runtime', 'package.json'), 'utf8'));
+  const lock = JSON.parse(fs.readFileSync(path.join(root, 'client-runtime', 'package-lock.json'), 'utf8'));
+  for (const [where, v] of [['client-runtime/package.json', pkg.version], ['client-runtime/package-lock.json', lock.version], ['client-runtime/package-lock.json 的 packages[""]', lock.packages?.['']?.version]]) {
+    if (v !== coreVersion) problems.push(`主程序版本：${where} 是 ${v}，核心 mod_version 是 ${coreVersion}（两者应相同，用 set-version.mjs app 改）`);
+  }
+  for (const adapter of compat.adapters.filter((a) => a.kind === 'addon')) {
+    const version = gradleProperty(adapter.project, 'mod_version');
+    if (!validVersion(version)) problems.push(`${adapter.id}：mod_version 不是 0.0.1 这样的版本号：${version}`);
+    if (!validVersion(adapter.coreMin)) { problems.push(`${adapter.id}：缺 coreMin 或格式不对：${adapter.coreMin}`); continue; }
+    if (compareVersions(adapter.coreMin, coreVersion) > 0) problems.push(`${adapter.id}：coreMin ${adapter.coreMin} 比核心 ${coreVersion} 还新`);
+    const coreMin = gradleProperty(adapter.project, 'core_min');
+    if (coreMin !== adapter.coreMin) problems.push(`${adapter.id}：gradle.properties 的 core_min 是 ${coreMin}，清单 coreMin 是 ${adapter.coreMin}`);
+    const toml = fs.readFileSync(path.join(root, adapter.project, 'src/main/templates/META-INF/neoforge.mods.toml'), 'utf8');
+    const range = new RegExp(`modId="${compat.core.id}"\\s*type="required"\\s*versionRange="([^"]*)"`).exec(toml)?.[1];
+    if (range !== '[${core_min},)') problems.push(`${adapter.id}：neoforge.mods.toml 对核心的要求是 ${range}，应写成 [\${core_min},)`);
+    const gradle = fs.readFileSync(path.join(root, adapter.project, 'build.gradle'), 'utf8');
+    if (/mcbot-server-control-\d/.test(gradle) || !gradle.includes('coreProps.mod_version')) problems.push(`${adapter.id}：build.gradle 里核心的 jar 名要按核心 gradle.properties 的 mod_version 拼，不能写死`);
+  }
+  return problems;
+}
+
 export function checkCompat(compat) {
   const problems = [];
   const core = compat.core;
@@ -78,6 +110,7 @@ export function checkCompat(compat) {
     if (range?.[1] !== compat.platform.loaderMin) problems.push(`${project}：neoforge.mods.toml 的 NeoForge 下限是 ${range?.[1]}，清单 ${compat.platform.loaderMin}`);
   }
   if (jarName(core.project) !== core.jar) problems.push(`核心 jar：清单 ${core.jar}，构建出来是 ${jarName(core.project)}`);
+  problems.push(...checkVersions(compat, gradleProperty(core.project, 'mod_version')));
   const ids = new Set();
   for (const adapter of compat.adapters) {
     if (ids.has(adapter.id)) problems.push(`适配 id 重复：${adapter.id}`);

@@ -9,7 +9,10 @@ java.toolchain.languageVersion = JavaLanguageVersion.of(21)
 repositories { mavenCentral() }
 // Only the MCBOT API is needed at compile time; Sophisticated Backpacks itself is reached by reflection at runtime,
 // so a changed or missing version makes the adapter report itself as not installed instead of crashing the server.
-def core = file('../mcbot-server-control/build/libs/mcbot-server-control-0.1.0.jar')
+// The core jar name follows the core's own mod_version, so bumping the core needs no change here
+def coreProps = new Properties()
+file('../mcbot-server-control/gradle.properties').withInputStream { coreProps.load(it) }
+def core = file("../mcbot-server-control/build/libs/mcbot-server-control-${coreProps.mod_version}.jar")
 dependencies {
     compileOnly files(core)
     testImplementation files(core)
@@ -22,7 +25,8 @@ neoForge {
 }
 var generateModMetadata = tasks.register('generateModMetadata', ProcessResources) {
     inputs.property 'mod_version', mod_version
-    expand mod_version: mod_version
+    inputs.property 'core_min', core_min
+    expand mod_version: mod_version, core_min: core_min
     from 'src/main/templates'
     into 'build/generated/sources/modMetadata'
 }

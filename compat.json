@@ -1,7 +1,7 @@
 {
   "schema": 1,
   "note": "支持范围的唯一来源：网站、README 和 WebUI 的模组页都读这份。改了模组里锁的版本就改这里，scripts/check-compat.mjs 会对一遍。",
-  "updated": "2026-10-10",
+  "updated": "2026-10-14",
   "platform": {
     "minecraft": "1.21.1",
     "loader": "neoforge",
@@ -23,7 +23,7 @@
     "id": "mcbot_server_control",
     "name": "MCBOT Server Control",
     "project": "mods/mcbot-server-control",
-    "jar": "mcbot-server-control-0.1.0.jar",
+    "jar": "mcbot-server-control-0.0.1.jar",
     "side": "server",
     "required": true,
     "what": "服务端身体：Bot 作为服务器中的模拟玩家运行，玩家只需使用自己的客户端"
@@ -35,7 +35,8 @@
       "nameEn": "Kaleidoscope Cookery",
       "kind": "addon",
       "project": "mods/mcbot-kaleidoscope-cookery",
-      "jar": "mcbot-kaleidoscope-cookery-0.1.0.jar",
+      "jar": "mcbot-kaleidoscope-cookery-0.0.1.jar",
+      "coreMin": "0.0.1",
       "what": ["使用炒锅烹饪（放油、加料、翻炒、出锅）"],
       "evidence": "隔离服实测",
       "requires": [
@@ -60,7 +61,8 @@
       "nameEn": "Sophisticated Backpacks",
       "kind": "addon",
       "project": "mods/mcbot-sophisticated-backpacks",
-      "jar": "mcbot-sophisticated-backpacks-0.1.0.jar",
+      "jar": "mcbot-sophisticated-backpacks-0.0.1.jar",
+      "coreMin": "0.0.1",
       "what": ["打开手持的背包", "将放置的背包作为容器使用", "记录拾取升级存入背包的物品"],
       "evidence": "隔离服实测（皮革背包、铁背包）",
       "requires": [
@@ -78,7 +80,8 @@
       "nameEn": "Yes Steve Model",
       "kind": "addon",
       "project": "mods/mcbot-yes-steve-model",
-      "jar": "mcbot-yes-steve-model-0.1.0.jar",
+      "jar": "mcbot-yes-steve-model-0.0.1.jar",
+      "coreMin": "0.0.1",
       "what": ["在 WebUI 中为 Bot 选择模型", "AI 播放模型动画（表情）"],
       "evidence": "隔离服实测",
       "requires": [
@@ -93,7 +96,8 @@
       "nameEn": "Iron Furnaces",
       "kind": "addon",
       "project": "mods/mcbot-iron-furnaces",
-      "jar": "mcbot-iron-furnaces-0.1.0.jar",
+      "jar": "mcbot-iron-furnaces-0.0.1.jar",
+      "coreMin": "0.0.1",
       "what": ["Iron Furnaces 模组中的铁熔炉（烧炼速度高于原版熔炉）：放入原料和燃料、取出成品；金、钻石等其他等级的熔炉暂不支持"],
       "evidence": "隔离服实测",
       "requires": [
