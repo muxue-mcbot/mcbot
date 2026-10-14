@@ -4,7 +4,8 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { assertSafeStage, parsePackageArgs, findIscc, DATA_DIRS, INSTALL_MARKER, ISS } from '../../scripts/package.mjs';
+import { assertSafeStage, parsePackageArgs, findIscc, DATA_DIRS, ISS } from '../../scripts/package.mjs';
+import { INSTALL_MARKER } from '../../scripts/paths.mjs';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..');
 

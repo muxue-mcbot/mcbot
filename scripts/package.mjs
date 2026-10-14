@@ -10,6 +10,8 @@ import { spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { loadCompat, checkCompat } from './check-compat.mjs';
 import { readAppVersion } from './version.mjs';
+// 安装标记：程序目录里有它就是安装版，数据放 %LOCALAPPDATA%\mcbot；文件名以 paths.mjs 为准
+import { INSTALL_MARKER } from './paths.mjs';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 // 程序目录里跑的入口；它们 import 的同目录脚本会自动带上
@@ -18,8 +20,6 @@ export const ENTRIES = ['webui.mjs', 'start-server-play.mjs', 'companion.mjs'];
 export const RUNTIME_FILES = ['package.json', 'package-lock.json', 'README.md', 'tool-registry.json', 'player-stop.json', 'memory-limits.json', 'host-timing.json'];
 export const ASSETS = ['webui-page.html'];
 const TOP_FILES = ['compat.json', 'LICENSE', 'NOTICE', 'CLAUDE.md'];
-// 安装标记：程序目录里有它就是安装版，数据放 %LOCALAPPDATA%\mcbot（scripts/paths.mjs 认这个文件名，不能改）
-export const INSTALL_MARKER = 'install.json';
 // 程序目录里不该有的用户数据目录：目标目录里有它们就拒绝打包，免得连数据一起删掉
 export const DATA_DIRS = ['runtime', 'memory'];
 export const ISS = path.join(ROOT, 'installer', 'mcbot.iss');
