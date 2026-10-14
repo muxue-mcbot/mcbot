@@ -1,6 +1,7 @@
 // 主程序更新和公告（docs/update_design.md 第四、六、七节）。
 // - 总清单 index.json：按来源顺序读，每个最多等 5 秒，用第一个读到且格式正确的；读到就存进 runtime/update-index.json，
-//   读不到时按上一次存下的显示（注明上次检查的时间）。清单里的 sources 排在默认来源前面，改了地址的旧安装也能找到新地址。
+//   读不到时按上一次存下的显示（注明上次检查的时间）。固定的服务器地址排第一（长期不变），清单里记的其他来源排在后面，
+//   以后换 GitHub 组织名之类，旧安装也能找到新地址；清单被写坏一次也不会让以后一直先去别处读。
 // - 服务器来源：根地址 + file；GitHub 来源（.../releases/download/）：+ tag/ + 文件名，清单在固定的 index Release 里。
 // - 更新：没有托管在跑、插件页没有在装卸时，下载安装包到 runtime/updates（只比大小，按多久没收到数据算超时，一个来源失败换下一个），
 //   用 /SILENT /SUPPRESSMSGBOXES /NORESTART 运行（detached），WebUI 随即以退出码 0 退出；替换文件、重新打开 WebUI 由安装包负责。
@@ -72,8 +73,8 @@ export function cachedIndex(runtime) {
   const c = readJson(path.join(runtime, INDEX_FILE)), got = readIndex(c?.index);
   return got.ok ? { index: got.index, checkedAt: c.checkedAt || 0, from: typeof c.from === 'string' ? c.from : '' } : null;
 }
-/** 下载用的来源顺序：读到清单的那个、清单里记的、默认的。 */
-export const downloadSources = (cache) => mergeSources(cache?.from ? [cache.from] : [], cache?.index?.sources || [], DEFAULT_SOURCES);
+/** 下载用的来源顺序：默认的（服务器）、读到清单的那个、清单里记的。 */
+export const downloadSources = (cache) => mergeSources(DEFAULT_SOURCES, cache?.from ? [cache.from] : [], cache?.index?.sources || []);
 
 /** 按顺序读各来源的清单，用第一个读到且格式正确的。 */
 export async function fetchIndex(sources, { fetchImpl = fetch, timeoutMs = INDEX_TIMEOUT_MS } = {}) {
@@ -154,12 +155,12 @@ export function hostingCommand(cmd, programDir = PROGRAM_DIR) {
 export function createUpdater({ runtime, programDir = PROGRAM_DIR, fetchImpl = fetch, busy = async () => '', listProcesses = nodeProcesses,
   installed = () => isInstalled(programDir), launch = launchInstaller, exit = () => setTimeout(() => process.exit(0), 500), now = () => new Date() }) {
   const current = readAppVersion(programDir);
-  let checking = null, lastError = '', tooNew = false, job = null;
+  let checking = null, lastError = '', tooNew = false, job = null, starting = false;
 
   async function check() {
     if (checking) return checking;
     checking = (async () => {
-      const got = await fetchIndex(mergeSources(cachedIndex(runtime)?.index?.sources || [], DEFAULT_SOURCES), { fetchImpl });
+      const got = await fetchIndex(mergeSources(DEFAULT_SOURCES, cachedIndex(runtime)?.index?.sources || []), { fetchImpl });
       tooNew = !!got.tooNew; lastError = got.ok ? '' : got.error;
       if (got.ok) {
         fs.mkdirSync(runtime, { recursive: true });
@@ -194,7 +195,9 @@ export function createUpdater({ runtime, programDir = PROGRAM_DIR, fetchImpl = f
   }
 
   async function run(app, sources) {
-    const dest = path.join(runtime, 'updates', path.posix.basename(app.file));
+    const dir = path.join(runtime, 'updates'), dest = path.join(dir, path.posix.basename(app.file));
+    // 只留这次要装的安装包：以前更新留下的和中途关掉 WebUI 留下的半截文件都删掉
+    try { for (const n of fs.readdirSync(dir)) if (n !== path.basename(dest)) fs.rmSync(path.join(dir, n), { force: true, recursive: true }); } catch { /* 还没有这个目录 */ }
     let ok = false, error = '';
     try { ok = fs.statSync(dest).size === app.size; } catch { /* 还没下过 */ }
     for (const source of ok ? [] : sources) {
@@ -216,14 +219,18 @@ export function createUpdater({ runtime, programDir = PROGRAM_DIR, fetchImpl = f
 
   /** 开始更新：先确认能更新，再在后台下载、运行安装包；网页轮询 view().job。 */
   async function start() {
-    if (job && job.phase !== 'error') return { ok: false, error: '更新已在进行中' };
+    // 检查是异步的：两个标签页同时点「更新」时只放行一个
+    if (starting || (job && job.phase !== 'error')) return { ok: false, error: '更新已在进行中' };
     if (!installed()) return { ok: false, error: '开发环境中无法自动更新：请使用安装包安装的 mcbot' };
     const c = cachedIndex(runtime);
     if (!c) return { ok: false, error: '尚未读取到更新清单：请先检查更新' };
     if (compareVersions(c.index.app.version, current) <= 0) return { ok: false, error: '已是最新版本' };
-    const reason = await blocker();
-    if (reason) return { ok: false, error: reason };
-    job = { phase: 'download', bytes: 0, total: c.index.app.size };
+    starting = true;
+    try {
+      const reason = await blocker();
+      if (reason) return { ok: false, error: reason };
+      job = { phase: 'download', bytes: 0, total: c.index.app.size };
+    } finally { starting = false; }
     run(c.index.app, downloadSources(c)).catch((e) => Object.assign(job, { phase: 'error', error: e.message }));
     return { ok: true };
   }

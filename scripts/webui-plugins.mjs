@@ -124,6 +124,12 @@ export function compareInstalled(have, want) {
 function releasedPlugin(r) {
   if (!r || typeof r !== 'object' || !isVersion(r.version) || !PLUGIN_FILE_RE.test(String(r.file)) || !TAG_RE.test(String(r.tag))
     || !(Number.isSafeInteger(r.size) && r.size > 0) || (r.coreMin !== undefined && !isVersion(r.coreMin))) return null;
+  // 和 compat.json 写法相同的字段会合进插件目录：类型不对的整条忽略（退回 compat.json 的版本），不能让插件页打不开
+  const str = (v) => v === undefined || typeof v === 'string';
+  const strs = (v) => v === undefined || (Array.isArray(v) && v.every((s) => typeof s === 'string'));
+  const req = (q) => q && typeof q === 'object' && (typeof q.ref === 'string' || (typeof q.modId === 'string' && typeof q.version === 'string' && str(q.side) && str(q.license)
+    && (q.modrinth === undefined || (q.modrinth && typeof q.modrinth === 'object' && typeof q.modrinth.file === 'string' && typeof q.modrinth.url === 'string' && Number.isSafeInteger(q.modrinth.size)))));
+  if (![r.name, r.nameEn, r.evidence].every(str) || !strs(r.what) || !(r.requires === undefined || (Array.isArray(r.requires) && r.requires.every(req)))) return null;
   return { version: r.version, file: r.file, tag: r.tag, size: r.size, coreMin: r.coreMin || '', date: typeof r.date === 'string' ? r.date : '',
     notes: Array.isArray(r.notes) ? r.notes.filter((s) => typeof s === 'string') : [] };
 }
@@ -362,6 +368,15 @@ export function planPlugin(gameDir, id, action, { catalog = loadCatalog(), runti
   if (action === 'install') {
     const e = installSteps(target);
     if (e) return { ok: false, error: e };
+    // 换了核心时，已安装的旧版适配也一起换：旧适配的 mods.toml 要求核心不低于它当时的版本（比如方案之前的 [0.1.0,)），
+    // 新核心不满足时 NeoForge 拒绝加载，游戏起不来
+    if (has('add', catalog.core.jar)) {
+      for (const t of catalog.plugins.filter((p) => p !== target && p.jar && ['old', 'different'].includes(infoOf(p).parts[0].state))) {
+        const e2 = installSteps(t);
+        if (e2) return { ok: false, error: `${t.name}：${e2}` };
+        note(`更换核心模组后，已安装的${t.name}适配为旧版本，将一并更新`);
+      }
+    }
   } else if (action === 'update-all') {
     // 核心加上所有已安装的插件（没装的不装）；只差主程序版本的插件（needApp）不在这里处理
     for (const t of [catalog.core, ...catalog.plugins]) {

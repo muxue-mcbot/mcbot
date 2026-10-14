@@ -145,3 +145,26 @@ test('从此游戏移除 mcbot：核心、适配 jar 和 config/mcbot-server-con
     assert.equal(fs.readFileSync(path.join(r.backup, 'config', 'mcbot-server-control', 'server.json'), 'utf8'), '{"username":"Bot"}');
   } finally { cleanup(f); }
 });
+
+test('换核心时已安装的旧版适配一起换（旧适配要求的核心版本新核心不满足，游戏会起不来），没装的不装', () => {
+  const f = fixture();
+  try {
+    const plan = planPlugin(f.game, 'mcbot_server_control', 'install', { catalog: catalogOf(f), runtime: f.runtime });
+    assert.equal(plan.ok, true, plan.error);
+    assert.deepEqual(plan.steps.filter((s) => s.op === 'add').map((s) => s.file), ['mcbot-server-control-0.0.2.jar', 'mcbot-kaleidoscope-cookery-0.0.3.jar', 'kc-1.7.0.jar']);
+    assert.ok(plan.notes.some((n) => /一并更新/.test(n)));
+    assert.ok(!plan.steps.some((s) => /iron/.test(s.file)), '没装的铁炉不装');
+  } finally { cleanup(f); }
+});
+
+test('清单里插件条目的字段类型不对时整条忽略，退回 compat.json 的版本，插件页照常打开', () => {
+  const f = fixture();
+  try {
+    const file = path.join(f.runtime, 'update-index.json'), c = JSON.parse(fs.readFileSync(file, 'utf8'));
+    c.index.plugins.kaleidoscope_cookery.requires = { modId: 'x' };
+    fs.writeFileSync(file, JSON.stringify(c));
+    const kc = catalogOf(f).plugins.find((p) => p.id === 'kaleidoscope_cookery');
+    assert.deepEqual([kc.version, kc.jar], ['0.0.1', 'mcbot-kaleidoscope-cookery-0.0.1.jar']);
+    assert.equal(inspectPlugins(f.game, catalogOf(f)).plugins.length, 2);
+  } finally { cleanup(f); }
+});

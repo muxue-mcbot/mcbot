@@ -115,12 +115,17 @@ test('主程序更新：检查后存下清单，有新版本只提示；托管�
     assert.deepEqual(up.view().popup.map((n) => n.id), ['warn'], '点过「知道了」不再弹');
     assert.match((await up.start()).error, /托管/);
     procs = [];
-    assert.deepEqual(await up.start(), { ok: true });
+    const updates = path.join(runtime, 'updates');
+    fs.mkdirSync(updates, { recursive: true });
+    fs.writeFileSync(path.join(updates, 'mcbot-setup-0.0.1.exe'), 'old'); fs.writeFileSync(path.join(updates, 'x.exe.99.part'), 'half');
+    const [first, second] = await Promise.all([up.start(), up.start()]);
+    assert.deepEqual(first, { ok: true }); assert.equal(second.error, '更新已在进行中', '同时点两次只放行一个');
     assert.equal((await up.start()).error, '更新已在进行中');
     for (let i = 0; i < 100 && !exits.length; i++) await new Promise((r) => setTimeout(r, 10));
     const dest = path.join(runtime, 'updates', 'mcbot-setup-0.0.2.exe');
     assert.deepEqual(launched, [[dest, ['/SILENT', '/SUPPRESSMSGBOXES', '/NORESTART']]]);
     assert.deepEqual(fs.readFileSync(dest), Buffer.from(installer));
+    assert.deepEqual(fs.readdirSync(updates), ['mcbot-setup-0.0.2.exe'], '旧安装包和半截文件已删');
     assert.equal(exits.length, 1); assert.equal(up.view().job.phase, 'exiting');
     assert.ok(calls.includes(fileUrl(GITHUB, index().app)), '服务器下载失败后换 GitHub');
   } finally { fs.rmSync(runtime, { recursive: true, force: true }); fs.rmSync(prog, { recursive: true, force: true }); }

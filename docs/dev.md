@@ -7,7 +7,7 @@
 - `client-runtime/`：共享Body契约、ServerBody／ClientBody实现、MCP工具、任务与陪伴状态。
 - `mods/mcbot-server-control/`：当前主线，MC1.21.1／NeoForge21.1.217服务端身体与原生交互。
 - `scripts/companion.mjs`、`scripts/driver/`、`scripts/agents/`：Claude／Codex会话驱动和事件调度。`companion.mjs` 是入口，实现按职责分在 `scripts/driver/`（各模块管什么见[状态归属](state_ownership.md)最后一节）；驱动器只能 import `scripts/` 里的模块，绿色版按 import 收集。
-- 程序目录和数据目录分开（`scripts/paths.mjs`，见[更新方式设计](update_design.md)第一节）：本文说的 `runtime/`、`memory/` 都在数据目录里。开发时数据目录就是仓库根目录，和以前一样；安装版（程序目录里有安装标记 `install.json`）用 `%LOCALAPPDATA%mcbot`；环境变量 `MCBOT_HOME` 可以另指。Agent 的工作目录始终是程序目录（Claude Code 从这里读 `CLAUDE.md`）。
+- 程序目录和数据目录分开（`scripts/paths.mjs`，见[更新方式设计](update_design.md)第一节）：本文说的 `runtime/`、`memory/` 都在数据目录里。开发时数据目录就是仓库根目录，和以前一样；安装版（程序目录里有安装标记 `install.json`）用 `%LOCALAPPDATA%\mcbot`；环境变量 `MCBOT_HOME` 可以另指。Agent 的工作目录始终是程序目录（Claude Code 从这里读 `CLAUDE.md`）。
 - 服务端、运行端、驱动器三层各管哪些状态，`runtime/` 里的文件谁写谁读，见[状态归属](state_ownership.md)。
 - 托管的两个时长（心跳多久算新鲜、叫停多久没确认就兜底撤销）只写在 `client-runtime/host-timing.json`，驱动器、WebUI（经 `scripts/host-timing.mjs`）和运行端、旧 `mcp-server` 的 `presence.ts` 都读它；见[状态归属](state_ownership.md)第 4、6 条。
 - 长期记忆：运行端 `client-runtime/src/memory.ts`、`memory-tools.ts`（字数上限在 `client-runtime/memory-limits.json`），驱动器 `scripts/driver/memory.mjs`、`consolidation.mjs`，WebUI `scripts/webui-memory.mjs`；见[记忆方案](memory_plan.md)。

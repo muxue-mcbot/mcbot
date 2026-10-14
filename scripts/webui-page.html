@@ -1282,7 +1282,7 @@ function renderUpdate() {
   if (!bar.hidden) {
     $('#upd-text').textContent = !active ? '有新版本 ' + u.latest.version + (u.latest.date ? '（' + u.latest.date + '）' : '') + '，当前版本 ' + u.current
       : job.phase === 'download' ? '正在下载新版本 ' + u.latest.version + (job.total ? '：' + mb(job.bytes) + ' / ' + mb(job.total) : '')
-      : '正在安装新版本，安装完成后将自动重新打开 WebUI；可关闭此页面';
+      : '正在安装新版本，安装完成后将自动重新打开 WebUI；可关闭此页面。如果几分钟后仍未打开，请从开始菜单或桌面打开 mcbot';
     $('#upd-go').hidden = $('#upd-later').hidden = active;
     const err = job && job.phase === 'error' ? job.error : '';
     $('#upd-err').hidden = !err; $('#upd-err').textContent = err;
