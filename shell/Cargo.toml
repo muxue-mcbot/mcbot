@@ -1,0 +1,26 @@
+[package]
+name = "mcbot-shell"
+version = "0.0.0"
+description = "mcbot 的桌面窗口：用 WebView2 显示本地 WebUI"
+license = "Apache-2.0"
+edition = "2021"
+publish = false
+
+[[bin]]
+name = "mcbot"
+path = "src/main.rs"
+
+[build-dependencies]
+tauri-build = { version = "2.7", features = [] }
+
+[dependencies]
+tauri = { version = "2.12", features = [] }
+tauri-plugin-single-instance = "2.5"
+tauri-plugin-opener = "2.7"
+
+[profile.release]
+codegen-units = 1
+lto = true
+opt-level = "s"
+panic = "abort"
+strip = true

@@ -46,5 +46,19 @@ test('the installer script installs per user, keeps data in %LOCALAPPDATA%\\mcbo
   assert.match(iss, /SELECT ProcessId, ExecutablePath, CommandLine FROM Win32_Process/, '自定义 Node 跑程序目录脚本的进程也要认出来');
   assert.match(iss, /function PrepareToInstall\(/);
   assert.match(iss, /MB_YESNO or MB_DEFBUTTON2/, '默认按钮是“否”');
-  assert.doesNotMatch(iss.match(/\[Run\][^[]*/)[0], /skipifsilent/, '静默安装装完也要重新打开 WebUI');
+  assert.doesNotMatch(iss.match(/^\[Run\]\r?\n[^[]*/m)[0], /skipifsilent/, '静默安装装完也要重新打开 WebUI');
+});
+
+// 10-15 起快捷方式和装完后打开的都是桌面窗口 mcbot.exe（shell/），安装和卸载前连它一起结束，没有 WebView2 时补装
+test('the installer opens the desktop window mcbot.exe, closes it before replacing files, and installs WebView2 when missing', () => {
+  const iss = fs.readFileSync(ISS, 'utf8');
+  assert.match(iss, /^#define AppExe "\{app\}\\mcbot\.exe"$/m);
+  for (const section of ['Icons', 'Run']) {
+    const body = iss.match(new RegExp(`^\\[${section}\\]\\r?\\n[^[]*`, 'm'))[0];
+    assert.match(body, /Filename: "\{#AppExe\}"/);
+    assert.doesNotMatch(body, /node\.exe|webui\.mjs/, `${section} 不再直接跑 node`);
+  }
+  assert.match(iss, /WHERE Name = ''node\.exe'' OR Name = ''mcbot\.exe''/);
+  assert.match(iss, /function HasWebView2\(/);
+  assert.match(iss, /if CurStep = ssPostInstall then InstallWebView2\(\)/);
 });

@@ -23,14 +23,16 @@ const FIRST_READ_BYTES = 128 * 1024;
 const MAX_READ_BYTES = 512 * 1024;
 
 export function parseWebArgs(argv) {
-  const out = { port: 8770, runtime: process.env.COMPANION_RUNTIME_DIR || runtimeDir(), open: false };
+  const out = { port: 8770, runtime: process.env.COMPANION_RUNTIME_DIR || runtimeDir(), open: false, shell: false };
   for (let i = 0; i < argv.length; i++) {
     const a = argv[i];
     if (a === '--port') out.port = Number(argv[++i]);
     else if (a === '--runtime') out.runtime = path.resolve(argv[++i]);
     else if (a === '--open') out.open = true;
-    else throw new Error(`不支持的参数：${a}（可用 --port、--runtime、--open）`);
+    else if (a === '--shell') out.shell = true;
+    else throw new Error(`不支持的参数：${a}（可用 --port、--runtime、--open、--shell）`);
   }
+  if (out.open && out.shell) throw new Error('--open 和 --shell 不能同时使用');
   if (!Number.isInteger(out.port) || out.port < 0 || out.port > 65535) throw new Error('--port 必须是 0～65535 的整数');
   return out;
 }
@@ -332,10 +334,13 @@ if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.me
   // 安装版第一次打开时数据目录还不存在
   fs.mkdirSync(opts.runtime, { recursive: true });
   const web = createWebServer({ runtime: opts.runtime });
-  web.listen(opts.port).then((port) => {
+  // --shell：由桌面窗口 mcbot.exe（shell/）启动，它从标准输出读地址；它的管道断了（窗口关了、壳崩了）就跟着退出。
+  // 默认端口被占（比如浏览器版 WebUI 还开着）时换一个空闲端口，窗口不在乎端口是几
+  if (opts.shell) { process.stdin.on('close', () => process.exit(0)); process.stdin.resume(); }
+  web.listen(opts.port).catch((e) => (opts.shell && e.code === 'EADDRINUSE' ? web.listen(0) : Promise.reject(e))).then((port) => {
     const url = `http://127.0.0.1:${port}/?t=${web.token}`;
     console.log(`mcbot WebUI：${url}`);
-    console.log(`读取 ${opts.runtime}；按 Ctrl+C 退出（正在托管的 Bot 不受影响）`);
+    console.log(`读取 ${opts.runtime}；${opts.shell ? '关闭 mcbot 窗口即退出' : '按 Ctrl+C 退出'}（正在托管的 Bot 不受影响）`);
     // 打开时在后台检查一次更新，只提示；读不到也不报错，页面的「设置」中显示检查失败
     web.updater.check().catch(() => {});
     if (opts.open && process.platform === 'win32') {

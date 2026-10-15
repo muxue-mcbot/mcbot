@@ -14,9 +14,11 @@ const heartbeat = (dir, name, extra = {}) => fs.writeFileSync(path.join(dir, `co
   JSON.stringify({ pid: process.pid, agent: 'dsh', updatedAt: Date.now(), name, nickname: 'DeepSeek', body: 'server', busy: false, ...extra }));
 const act = (dir, name, rows) => fs.appendFileSync(path.join(dir, `activity-${name}.jsonl`), rows.map((r) => JSON.stringify(r) + '\n').join(''));
 
-test('WebUI 参数：默认端口 8770，只认识 --port、--runtime、--open', () => {
+test('WebUI 参数：默认端口 8770，只认识 --port、--runtime、--open、--shell', () => {
   assert.equal(parseWebArgs([]).port, 8770);
   assert.equal(parseWebArgs(['--port', '0']).port, 0);
+  assert.equal(parseWebArgs(['--shell']).shell, true);
+  assert.throws(() => parseWebArgs(['--shell', '--open']), /不能同时使用/);
   assert.throws(() => parseWebArgs(['--host', '0.0.0.0']), /不支持的参数/);
   assert.throws(() => parseWebArgs(['--port', 'x']), /--port/);
 });

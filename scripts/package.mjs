@@ -23,6 +23,9 @@ const TOP_FILES = ['compat.json', 'LICENSE', 'NOTICE', 'CLAUDE.md'];
 // 程序目录里不该有的用户数据目录：目标目录里有它们就拒绝打包，免得连数据一起删掉
 export const DATA_DIRS = ['runtime', 'memory'];
 export const ISS = path.join(ROOT, 'installer', 'mcbot.iss');
+// 桌面窗口（shell/，Tauri）：cargo 编译出的 mcbot.exe 放在程序目录根上，快捷方式指向它
+export const SHELL_DIR = path.join(ROOT, 'shell');
+export const SHELL_EXE = path.join(SHELL_DIR, 'target', 'release', 'mcbot.exe');
 
 /** 默认用 runtime/node-dist 里解压好的官方 Node（版本最新的那个）；没有就用当前的 Node。 */
 function defaultNode() {
@@ -88,7 +91,7 @@ function readme(compat, version) {
     '',
     '使用方法',
     '1. 在本机安装并登录一个 Agent：Claude Code、Codex 或 DeepSeek Harness。程序不会代为登录。',
-    '2. 从开始菜单或桌面的「mcbot」打开，浏览器将打开 WebUI。',
+    '2. 从开始菜单或桌面的「mcbot」打开 mcbot 窗口（本机没有 WebView2 运行库时改用浏览器打开）。',
     '3. 在「配置」页新建配置，在「连接配置」中选择游戏目录（服务器目录或启动器实例）。',
     '4. 在「插件」中安装核心模组和所需插件（需要联网下载）。修改前请备份存档。',
     '5. 启动服务器，或进入单人世界后按 Esc 选择「对局域网开放」。',
@@ -142,10 +145,14 @@ export function buildPackage(opts) {
   if (opts.build) run('npm', ['run', 'build'], path.join(ROOT, 'client-runtime'));
   const dist = path.join(ROOT, 'client-runtime', 'dist', 'main.js');
   if (!fs.existsSync(dist)) throw new Error('client-runtime 尚未构建（npm run build）');
+  // 要装好 Rust（MSVC 工具链）；依赖第一次编译时从 crates.io 下载，之后用 shell/Cargo.lock 锁定的版本
+  if (opts.build) run('cargo', ['build', '--release', '--locked'], SHELL_DIR);
+  if (!fs.existsSync(SHELL_EXE)) throw new Error('桌面窗口尚未编译（在 shell/ 中运行 cargo build --release）');
 
   fs.rmSync(stage, { recursive: true, force: true });
   fs.mkdirSync(stage, { recursive: true });
 
+  copy(SHELL_EXE, path.join(stage, 'mcbot.exe'));
   copy(opts.node, path.join(stage, 'node', 'node.exe'));
   copy(nodeLicense, path.join(stage, 'node', 'LICENSE'));
 

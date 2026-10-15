@@ -1,0 +1,28 @@
+<!doctype html>
+<html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>mcbot</title>
+<!-- 壳启动 WebUI 时先显示这页；WebUI 起不来或中途退出时，壳带上 ?error= 回到这页显示原因（只当文字显示） -->
+<style>
+:root{color-scheme:light;--bg:#fbf7f9;--text:#27272a;--muted:#71717a;--primary:#ec6a9c;--err:#d6336c;--fill:rgba(24,24,27,.045)}
+@media (prefers-color-scheme:dark){:root{color-scheme:dark;--bg:#18161a;--text:#ececf1;--muted:#a1a1aa;--primary:#f0679b;--err:#f06595;--fill:rgba(255,255,255,.06)}}
+html,body{height:100%;margin:0}
+body{background:var(--bg);color:var(--text);display:grid;place-items:center;font:14px/1.6 "Segoe UI Variable Text","Segoe UI",system-ui,"Microsoft YaHei UI",sans-serif}
+main{display:flex;flex-direction:column;align-items:center;gap:14px;padding:24px;max-width:640px}
+.brand{display:flex;align-items:center;gap:10px;font-size:22px;font-weight:700;letter-spacing:.04em}
+.brand i{width:4px;height:22px;border-radius:4px;background:var(--primary)}
+.spin{width:26px;height:26px;border-radius:50%;border:3px solid var(--fill);border-top-color:var(--primary);animation:r .9s linear infinite}
+@keyframes r{to{transform:rotate(360deg)}}
+#msg{color:var(--muted)}
+pre{margin:0;max-height:50vh;overflow:auto;white-space:pre-wrap;word-break:break-word;padding:12px 14px;border-radius:12px;background:var(--fill);font:12px/1.5 "Cascadia Mono",Consolas,monospace;color:var(--muted)}
+.err #msg{color:var(--err)}.err .spin{display:none}
+</style></head><body>
+<main><div class="brand"><i></i>mcbot</div><div class="spin"></div><div id="msg">正在启动…</div><pre id="detail" hidden></pre></main>
+<script>
+const q = new URLSearchParams(location.search), error = q.get('error');
+if (error) {
+  document.body.className = 'err';
+  document.getElementById('msg').textContent = 'mcbot 的 WebUI 已退出。请关闭此窗口后重新打开 mcbot。';
+  const d = document.getElementById('detail'); d.textContent = error; d.hidden = false;
+}
+</script>
+</body></html>

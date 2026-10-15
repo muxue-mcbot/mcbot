@@ -52,6 +52,8 @@ nav{display:flex;flex-direction:column;gap:6px}
 @keyframes wiggle{30%{transform:rotate(-10deg) scale(1.1)}60%{transform:rotate(6deg)}}
 .side-foot{margin-top:auto;display:flex;flex-direction:column;gap:8px}
 .side-foot .note{color:var(--muted);font-size:12px;text-align:center}
+.side-foot .ver{all:unset;box-sizing:border-box;cursor:pointer;text-align:center;font-size:12.5px;font-weight:600;color:var(--muted);padding:5px 10px;border-radius:999px;transition:background .2s,color .2s}
+.side-foot .ver:hover{background:var(--fill-hover);color:var(--text)}.side-foot .ver.new{background:var(--primary-soft);color:var(--primary-strong)}
 .scrim{display:none}
 .content{flex:1;min-width:0;display:flex;flex-direction:column;padding:8px 8px 0}
 .topbar{position:sticky;top:0;z-index:5;display:flex;align-items:center;gap:8px;height:42px;padding:0 8px 0 10px;border-radius:999px;background:var(--glass);
@@ -225,6 +227,7 @@ input.sw:focus-visible{outline:2px solid var(--primary);outline-offset:2px}
 .upd .row-btns{gap:10px}.upd .grow{flex:1}.upd a{color:var(--primary-strong);font-size:12px}
 .upd ul,.settings ul.upd-notes{margin:0;padding-left:18px;font-size:13px;color:var(--muted);display:flex;flex-direction:column;gap:2px}
 .upd .err,.settings .err{color:var(--err);font-size:12.5px}
+.upd .prog{margin-top:0}
 .notice{padding:10px 14px;border-radius:12px;background:var(--fill);font-size:13px;display:flex;flex-direction:column;gap:4px}
 .notice.warn{background:var(--err-soft)}.notice .meta{color:var(--muted);font-size:12px}.notice .text,.dlg .text{white-space:pre-wrap;word-break:break-word}
 .settings h3{margin:4px 0 0;font-size:14px}
@@ -331,7 +334,7 @@ textarea:focus{border-color:var(--primary);background:var(--glass-strong);box-sh
 <nav><button class="nav-item on" id="tab-monitor"><svg class="i" viewBox="0 0 24 24"><path d="M3 12h4l3-8 4 16 3-8h4"/></svg>监控<span class="pip"></span></button>
 <button class="nav-item" id="tab-config"><svg class="i" viewBox="0 0 24 24"><path d="M4 6h10M18 6h2M4 12h4M12 12h8M4 18h12"/><circle cx="16" cy="6" r="2"/><circle cx="10" cy="12" r="2"/><circle cx="18" cy="18" r="2"/></svg>配置<span class="pip"></span></button>
 <button class="nav-item" id="tab-settings"><svg class="i" viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M12 3v3M12 18v3M3 12h3M18 12h3M5.6 5.6l2.1 2.1M16.3 16.3l2.1 2.1M5.6 18.4l2.1-2.1M16.3 7.7l2.1-2.1"/></svg>设置<span class="pip"></span></button></nav>
-<div class="side-foot"><button class="wide" id="theme-btn">主题：跟随系统</button><div class="note">仅本机可见</div></div></aside>
+<div class="side-foot"><button class="wide" id="theme-btn">主题：跟随系统</button><button type="button" class="ver" id="side-ver" title="在「设置」中查看版本和更新">mcbot</button><div class="note">仅本机可见</div></div></aside>
 <div class="scrim" id="scrim"></div>
 <div class="content">
 <header class="topbar"><button class="icon ghost" id="menu" aria-label="菜单"><svg class="i" viewBox="0 0 24 24"><path d="M4 7h16M4 12h16M4 17h10"/></svg></button>
@@ -341,7 +344,7 @@ textarea:focus{border-color:var(--primary);background:var(--glass-strong);box-sh
 <div class="row-btns"><span id="upd-text"></span><span class="grow"></span>
 <button type="button" class="ghost small" id="upd-more">查看更新说明</button><a id="upd-link" target="_blank" rel="noopener noreferrer">在浏览器中下载</a>
 <button type="button" class="primary small" id="upd-go">更新</button><button type="button" class="ghost small" id="upd-later">稍后提醒</button></div>
-<ul id="upd-notes" hidden></ul><div class="err" id="upd-err" hidden></div></div>
+<div class="prog" id="upd-prog" hidden><i></i></div><ul id="upd-notes" hidden></ul><div class="err" id="upd-err" hidden></div></div>
 
 <main class="view" id="view-monitor"><div class="grid">
 <div class="col"><div class="col-title">托管中的 Bot</div><section class="list" id="bots"></section></div>
@@ -1286,7 +1289,15 @@ function renderUpdate() {
     $('#upd-go').hidden = $('#upd-later').hidden = active;
     const err = job && job.phase === 'error' ? job.error : '';
     $('#upd-err').hidden = !err; $('#upd-err').textContent = err;
+    // 下载时按字节走，下载完（启动安装包、退出）显示满格
+    const prog = $('#upd-prog'), pct = !active ? 0 : job.phase === 'download' ? (job.total ? Math.min(100, Math.round(job.bytes * 100 / job.total)) : 0) : 100;
+    prog.hidden = !active; $('i', prog).style.width = pct + '%';
+    if (active && job.phase === 'download' && job.total) $('#upd-text').textContent += '（' + pct + '%）';
   }
+  // 左下角的版本号，有新版本时标出来；点了去「设置」
+  const sv = $('#side-ver');
+  sv.textContent = u ? 'v' + u.current + (u.available ? ' · 可更新到 ' + u.latest.version : '') : 'mcbot';
+  sv.classList.toggle('new', !!(u && u.available));
   // 「设置」页
   $('#s-version').textContent = u ? u.current : '无法读取';
   let msg = '';
@@ -1319,6 +1330,7 @@ $('#n-ok').onclick = async () => {
 };
 $('#upd-more').onclick = () => { const n = $('#upd-notes'); n.hidden = !n.hidden; $('#upd-more').textContent = n.hidden ? '查看更新说明' : '收起更新说明'; };
 $('#upd-later').onclick = () => { updLater = true; renderUpdate(); };
+$('#side-ver').onclick = () => { setTab('settings'); document.body.classList.remove('nav-open'); };
 $('#upd-go').onclick = async () => {
   if (!upd || !upd.latest || !confirm('更新到 ' + upd.latest.version + '？将下载安装包（' + mb(upd.latest.size) + '），下载完成后关闭 WebUI 并安装，安装完成后自动重新打开')) return;
   $('#upd-go').disabled = true;

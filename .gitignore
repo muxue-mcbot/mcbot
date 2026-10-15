@@ -32,3 +32,7 @@ video/
 # Editor and OS files
 .DS_Store
 Thumbs.db
+
+# Tauri 壳的编译输出
+shell/target/
+shell/gen/
