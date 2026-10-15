@@ -18,8 +18,8 @@ import { summarizeOperation, summarizeObservation, summarizeContainer, farPlayer
 import { PlaceBook } from './places.js';
 import type { MachineWatch } from './machines.js';
 import { MeetWatch } from './meet-watch.js';
-import { BlueprintShelf, editBlueprint, fromPalette, parseState, resolveCells, type Palette, type Rotation, type Shape } from './blueprints.js';
-import { blockProperties, renderVoxels } from './render.js';
+import { BlueprintShelf, editBlueprint, fromPalette, parseState, resolveCells, shakyCells, type Palette, type Rotation, type Shape } from './blueprints.js';
+import { blockProperties, placedByNoItem, renderVoxels } from './render.js';
 import { designGuide } from './design-guide.js';
 import { pluginGuides, pluginIndex, pluginNotes } from './plugins.js';
 import { toolInfo, looksOnly, TOOLS } from './tool-registry.js';
@@ -504,10 +504,20 @@ export function createMcpServer(rawBody: Body, events: EventJournal, options: { 
         for (const block of blocks) { const id = parseState(block[3]).name; if (id !== 'air') counts.set(id, (counts.get(id) ?? 0) + 1); }
         return Object.fromEntries([...counts].sort((a, b) => b[1] - a[1]).slice(0, 10));
       };
-      // Names the game does not have (an old name like grass_path, a typo); the server refuses them at build time. Mod blocks are not judged.
-      const unknown = (states: string[]) => {
-        const names = [...new Set(states.map(s => parseState(s).name))].filter(n => n !== 'air' && !n.includes(':') && blockProperties(n) === undefined);
-        return names.length ? { unknown: `原版 1.21.1 没有这些方块，盖的时候会失败，换掉：${names.join('、')}` } : {};
+      // What the server refuses at build time: names the game does not have (an old name like grass_path, a typo), blocks no item
+      // places (a potted plant, 10-16 a trial design's potted_bamboo stopped the whole build) and double slabs. Mod blocks are not judged.
+      // Then what will not stay once built (a door with its top taken, powder over a gap).
+      const unknown = (cells: [number, number, number, string][]) => {
+        const blocks = [...new Set(cells.map(c => c[3]))].map(parseState).filter(s => s.name !== 'air' && !s.name.includes(':'));
+        const named = (keep: (s: { name: string; props: Record<string, string> }) => boolean) => [...new Set(blocks.filter(keep).map(s => s.name))];
+        const names = named(s => blockProperties(s.name) === undefined);
+        const noItem = named(s => placedByNoItem(s.name)), doubled = named(s => s.name.endsWith('_slab') && s.props.type === 'double');
+        const shaky = shakyCells(cells);
+        return {
+          ...(names.length ? { unknown: `原版 1.21.1 没有这些方块，盖的时候会失败，换掉：${names.join('、')}` } : {}),
+          ...(noItem.length || doubled.length ? { unplaceable: `游戏里没有物品能直接放出这些，盖的时候会失败，换掉：${[...noItem, ...doubled.map(n => `${n}[type=double]`)].join('、')}（盆栽写空的 flower_pot，双层台阶写整块）` } : {}),
+          ...(shaky.length ? { shaky: `盖好以后站不住：${shaky.slice(0, 6).join('；')}${shaky.length > 6 ? `……共 ${shaky.length} 处` : ''}` } : {}),
+        };
       };
       register('blueprints', 'Designing for build. guide: how to design with parts and palette, what to check (topic: a style it lists). list: name, size, block count, description, main materials. save: keep blocks/shapes/palette under name (stored relative to their minimum corner; overwrite replaces). render: a picture of a saved blueprint (name) or of a draft (blocks/shapes/palette): two 45° views, floor plans, and the plans as text (image:false for text only); only you see it, the player does not: check it, fix, then tell the player in a few words. edit: change a saved one in its own coordinates (replace materials, optionally within a box; remove boxes; set cells), to saveAs or with overwrite.', {
         action: z.enum(['guide', 'list', 'save', 'render', 'edit']), name: z.string().min(1).max(40).optional(), description: z.string().max(200).optional(),
@@ -530,14 +540,14 @@ export function createMcpServer(rawBody: Body, events: EventJournal, options: { 
           const drawn = renderVoxels(voxels, { front });
           // Models took the first picture as done and told the player to look at it (10-15 trials).
           const check = '这张图只有你看得到，玩家看不到。第一版一般都有毛病：按设计参考「看图检查」逐条看，改掉（edit 或重新 save）再画；没毛病了再用几句话跟玩家说外观、大小和要备的料。';
-          const strange = unknown(voxels.map(v => v.name)).unknown;
-          const text = `${what}\n${check}\n${strange ? `${strange}（图里画成品红色）\n` : ''}${drawn.caption}`;
+          const strange = unknown(cells.map(c => [c.x, c.y, c.z, c.state] as [number, number, number, string]));
+          const text = `${what}\n${check}\n${strange.unknown ? `${strange.unknown}（图里画成品红色）\n` : ''}${[strange.unplaceable, strange.shaky].filter(Boolean).map(s => `${s}\n`).join('')}${drawn.caption}`;
           return image === false ? text : new PictureResult(drawn.png, text);
         }
         if (!name) throw new BodyError('INVALID_ARGUMENT', `${action} 要给 name`);
         if (action === 'save') {
           const saved = shelf.save(name, description ?? '', cellsOf(args), overwrite === true);
-          return { saved: saved.name, size: saved.size, blocks: saved.blocks.length, ...unknown(saved.blocks.map(b => b[3])) };
+          return { saved: saved.name, size: saved.size, blocks: saved.blocks.length, ...unknown(saved.blocks) };
         }
         if (!replace?.length && !remove?.length && !set?.length) throw new BodyError('INVALID_ARGUMENT', 'edit 给 replace、remove 或 set，说要改什么');
         if (!saveAs && !overwrite) throw new BodyError('INVALID_ARGUMENT', `改完存到哪：saveAs 存成新蓝图（原来的留着），或者 overwrite: true 直接改「${name}」`);
@@ -550,7 +560,7 @@ export function createMcpServer(rawBody: Body, events: EventJournal, options: { 
         const saved = shelf.save(target, description ?? old.description, edited.cells, overwrite === true, saveAs ? `由「${name}」改出来（${old.source}）` : old.source);
         const shift = ['x', 'y', 'z'].map(k => Math.min(...edited.cells.map(c => c[k as 'x' | 'y' | 'z'])));
         return {
-          saved: saved.name, size: saved.size, blocks: saved.blocks.length, materials: materials(saved.blocks), ...unknown(saved.blocks.map(b => b[3])),
+          saved: saved.name, size: saved.size, blocks: saved.blocks.length, materials: materials(saved.blocks), ...unknown(saved.blocks),
           ...(edited.replaced.length ? { replaced: Object.fromEntries(edited.replaced.map(([rule, n]) => [rule, n || '一格都没对上，检查名字和属性'])) } : {}),
           ...(remove?.length ? { removed: edited.removed } : {}), ...(set?.length ? { set: edited.set } : {}),
           ...(shift.some(Boolean) ? { note: `最小角变了，坐标整体挪了 (${shift.map(v => -v).join(', ')})` } : {}),

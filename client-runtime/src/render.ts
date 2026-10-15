@@ -17,6 +17,7 @@ interface Assets {
   models: [number, number, number, number, number, number, [number, number, number, number][]][][];
   blocks: Record<string, { variants?: [string, RawVariant][]; multipart?: [Record<string, unknown> | null, RawVariant][] }>;
   defaults: Record<string, Record<string, string>>;
+  noItem: string[];
 }
 
 let assets: Assets | undefined;
@@ -29,6 +30,13 @@ function loadAssets(): Assets {
 export function blockProperties(name: string): string[] | undefined {
   const { blocks, defaults } = loadAssets();
   return blocks[name] ? Object.keys(defaults[name] ?? {}) : undefined;
+}
+
+let noItem: Set<string> | undefined;
+/** A 1.21.1 block no item places (potted plants, candle cakes, fire...): the server's build refuses it. */
+export function placedByNoItem(name: string): boolean {
+  noItem ??= new Set(loadAssets().noItem);
+  return noItem.has(name);
 }
 
 const DIRS = ['down', 'up', 'north', 'south', 'west', 'east'];

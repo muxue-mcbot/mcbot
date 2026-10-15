@@ -249,7 +249,10 @@ function doorCells(s: Shape): Cell[] {
   return out;
 }
 
-/** A staircase going up towards facing, one block a row, with two blocks of headroom kept clear above every step. */
+/**
+ * A staircase going up towards facing, one block a row, with three blocks of headroom kept clear above every step: stepping up,
+ * the body is still half over the step below with its head a block higher (10-16 with two, a player hit the edge of the floor above).
+ */
 function stairCells(s: Shape): Cell[] {
   const facing = need(s.facing, 'stairs 要给 facing（往上走的方向）');
   const { x1, x2, y1, y2, z1, z2 } = box(s.from, s.to);
@@ -257,7 +260,7 @@ function stairCells(s: Shape): Cell[] {
   const run = alongX ? x2 - x1 : z2 - z1;
   if (run !== y2 - y1) throw new BodyError('INVALID_ARGUMENT', `stairs 每往前一格升一格：朝 ${facing} 走了 ${run + 1} 格，就要升 ${run + 1} 层（现在 y 从 ${y1} 到 ${y2}）`);
   const [w1, w2] = alongX ? [z1, z2] : [x1, x2];
-  tooMany((run + 1) * (w2 - w1 + 1) * (s.support ? run + 4 : 3), 'stairs ');
+  tooMany((run + 1) * (w2 - w1 + 1) * (s.support ? run + 5 : 4), 'stairs ');
   const forward = STEP[facing].x + STEP[facing].z > 0;
   const step = withDefaults(s.block, { facing, half: 'bottom' });
   const out: Cell[] = [];
@@ -266,7 +269,7 @@ function stairCells(s: Shape): Cell[] {
     for (let w = w1; w <= w2; w++) {
       const at = (yy: number, state: string): Cell => alongX ? { x: a, y: yy, z: w, state } : { x: w, y: yy, z: a, state };
       if (s.support) for (let yy = y1; yy < y; yy++) out.push(at(yy, s.support));
-      out.push(at(y, step), at(y + 1, 'air'), at(y + 2, 'air'));
+      out.push(at(y, step), at(y + 1, 'air'), at(y + 2, 'air'), at(y + 3, 'air'));
     }
   }
   return out;
@@ -397,4 +400,23 @@ export function editBlueprint(blueprint: Blueprint, edit: BlueprintEdit, propert
   if (!cells.length) throw new BodyError('INVALID_ARGUMENT', '改完蓝图里一格都不剩了');
   if (cells.length > MAX_CELLS) throw new BodyError('INVALID_ARGUMENT', `改完有 ${cells.length} 格，蓝图最多 ${MAX_CELLS} 格`);
   return { cells, replaced, removed, set: set.length };
+}
+
+/** Sand, gravel, concrete powder and anvils fall into a gap below them. */
+const FALLS = /(^|_)sand$|gravel$|concrete_powder$|anvil$/;
+/**
+ * What will not stay once built: a door whose upper half another block takes (10-16 a trial design drew a wall after its door)
+ * and a block that falls with nothing under it (concrete powder over a door gap or an opening). Air over a door is its upper half.
+ */
+export function shakyCells(blocks: [number, number, number, string][]): string[] {
+  const at = new Map(blocks.map(([x, y, z, state]) => [`${x},${y},${z}`, parseState(state)]));
+  const lowest = Math.min(...blocks.map(b => b[1]));
+  const door = (s?: { name: string; props: Record<string, string> }) => !!s && s.name.endsWith('_door') && s.props.half !== 'upper';
+  const out: string[] = [];
+  for (const [x, y, z, state] of blocks) {
+    const s = parseState(state), above = at.get(`${x},${y + 1},${z}`), below = at.get(`${x},${y - 1},${z}`);
+    if (door(s) && above && above.name !== 'air' && above.name !== s.name) out.push(`(${x},${y},${z}) 的门上半截被 ${above.name} 占了，门放不下`);
+    if (FALLS.test(s.name) && y > lowest && (!below || below.name === 'air') && !door(at.get(`${x},${y - 2},${z}`))) out.push(`(${x},${y},${z}) 的 ${s.name} 下面是空的，会掉下来`);
+  }
+  return out;
 }

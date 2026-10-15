@@ -10,7 +10,7 @@ import { ServerBody } from '../dist/server-body.js';
 import { createMcpServer } from '../dist/mcp.js';
 import { EventJournal } from '../dist/events.js';
 import { BlueprintShelf, editBlueprint, resolveCells, shapeCells, roofCells } from '../dist/blueprints.js';
-import { blockProperties, detectFloors, renderVoxels, textPlan } from '../dist/render.js';
+import { blockProperties, detectFloors, placedByNoItem, renderVoxels, textPlan } from '../dist/render.js';
 import { designGuide } from '../dist/design-guide.js';
 import { parseState } from '../dist/blueprints.js';
 import { mockServerControl, serverCapabilities } from './mock-server-control.mjs';
@@ -83,6 +83,8 @@ test('stairs: a step up per block forward, headroom cleared above every step, su
   assert.equal(at(3, 4, 1), 'oak_stairs[facing=east,half=bottom]');
   assert.equal(at(2, 1, 0), 'cobblestone');
   assert.equal(at(1, 4, 0), 'air', 'the floor above is opened over the stairs');
+  assert.equal(at(1, 5, 0), 'air', 'three blocks of headroom: stepping up from x=1 the head is still over it');
+  assert.equal(at(0, 5, 0), 'oak_planks', 'the floor over the first step stays');
   assert.equal(at(5, 5, 0), 'oak_planks', 'the floor past the top step stays');
   const north = cellsAt(shapeCells({ shape: 'stairs', from: p(0, 1, 0), to: p(0, 3, 2), block: 'stone_brick_stairs', facing: 'north' }));
   assert.equal(north(0, 1, 2), 'stone_brick_stairs[facing=north,half=bottom]');
@@ -158,13 +160,15 @@ test('render: a PNG with two views and floor plans, and the plans as text (door,
   const plan = textPlan(voxels, 0);
   assert.equal(plan[1][7], 'D', 'the door in the north wall');
   assert.equal(plan[1][1], '#');
-  assert.equal(plan[8].slice(2, 5), 'WWW', 'the recessed windows, one in from the south wall');
+  assert.equal(plan[9].slice(2, 5), 'WWW', 'the windows in the south wall');
   const drawn = renderVoxels(voxels);
   assert.deepEqual([...drawn.png.subarray(0, 8)], [137, 80, 78, 71, 13, 10, 26, 10]);
   assert.match(drawn.caption, /第 1 层文字平面图（地板 y=0/);
   assert.ok(renderVoxels([{ x: 0, y: 0, z: 0, name: 'somemod:machine', props: {} }]).png.length > 0, 'a block it does not know is drawn as a plain cube');
   assert.deepEqual(blockProperties('oak_stairs').sort(), ['facing', 'half', 'shape', 'waterlogged']);
   assert.equal(blockProperties('somemod:machine'), undefined);
+  for (const name of ['potted_bamboo', 'candle_cake', 'fire', 'kelp_plant']) assert.equal(placedByNoItem(name), true, name);
+  for (const name of ['flower_pot', 'wall_torch', 'oak_wall_sign', 'carrots', 'pumpkin_stem', 'sweet_berry_bush', 'cave_vines', 'redstone_wire', 'white_bed', 'air', 'somemod:machine']) assert.equal(placedByNoItem(name), false, name);
 });
 
 test('guide: the general notes and the list of styles, or one style; its example house is a valid design', () => {
@@ -217,6 +221,21 @@ test('blueprints tool: guide, save with a palette, render a draft or a saved one
   const old = { action: 'save', name: '小路', blocks: [{ x: 0, y: 0, z: 0, block: 'grass_path' }, { x: 1, y: 0, z: 0, block: 'somemod:machine' }] };
   assert.match(JSON.parse((await call(old)).content[0].text).unknown, /grass_path$/, 'an old name is named; a mod block is not judged');
   assert.match((await call({ action: 'render', name: '小路', image: false })).content[0].text, /盖的时候会失败.*grass_path（图里画成品红色）/);
-  assert.equal(JSON.parse((await call({ action: 'save', name: '木屋2', ...design })).content[0].text).unknown, undefined);
+  const pots = { action: 'save', name: '花台', blocks: [{ x: 0, y: 0, z: 0, block: 'potted_bamboo' }, { x: 1, y: 0, z: 0, block: 'stone_brick_slab[type=double]' }, { x: 2, y: 0, z: 0, block: 'stone_brick_slab[type=top]' }, { x: 3, y: 0, z: 0, block: 'flower_pot' }] };
+  const potted = JSON.parse((await call(pots)).content[0].text);
+  assert.equal(potted.unknown, undefined);
+  assert.match(potted.unplaceable, /换掉：potted_bamboo、stone_brick_slab\[type=double\]（/, 'a potted plant and a double slab are named; the pot and a top slab are not');
+  assert.match((await call({ action: 'render', name: '花台', image: false })).content[0].text, /没有物品能直接放出这些.*potted_bamboo/);
+  const fallen = { action: 'save', name: '塌门', blocks: [{ x: 0, y: 0, z: 0, block: 'stone' }, { x: 0, y: 1, z: 0, block: 'oak_door' }, { x: 0, y: 2, z: 0, block: 'white_concrete_powder' },
+    { x: 1, y: 1, z: 0, block: 'oak_door' }, { x: 1, y: 2, z: 0, block: 'air' }, { x: 1, y: 3, z: 0, block: 'sand' }, { x: 2, y: 3, z: 0, block: 'gravel' }] };
+  const shaky = JSON.parse((await call(fallen)).content[0].text).shaky;
+  assert.match(shaky, /\(0,1,0\) 的门上半截被 white_concrete_powder 占了/);
+  assert.match(shaky, /\(2,3,0\) 的 gravel 下面是空的，会掉下来/);
+  assert.doesNotMatch(shaky, /sand/, 'over a door its upper half holds it up');
+  assert.match((await call({ action: 'render', name: '塌门', image: false })).content[0].text, /盖好以后站不住/);
+  const saved = JSON.parse((await call({ action: 'save', name: '木屋2', ...design })).content[0].text);
+  assert.equal(saved.unknown, undefined);
+  assert.equal(saved.unplaceable, undefined);
+  assert.equal(saved.shaky, undefined);
   assert.equal(mock.calls.filter(c => c.method === 'act').length, 0, 'designing never moves the body');
 });

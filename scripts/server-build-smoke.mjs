@@ -12,7 +12,7 @@ import { fileURLToPath } from 'node:url';
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const flags = process.argv.slice(2);
 if (flags.includes('--help') || !flags.includes('--allow-fixture')) {
-  console.log('MC_SERVER_DIR=<隔离服绝对路径> node scripts/server-build-smoke.mjs --allow-fixture [--only pavilion,door] [--house <本机蓝图 JSON> [--house-from <层>]]');
+  console.log('MC_SERVER_DIR=<隔离服绝对路径> node scripts/server-build-smoke.mjs --allow-fixture [--only pavilion,door] [--house <本机蓝图 JSON> [--house-from <层>] [--at <x,z>]]');
   process.exit(flags.includes('--help') ? 0 : 1);
 }
 const flag = name => { const i = flags.indexOf(name); return i >= 0 ? flags[i + 1] : undefined; };
@@ -178,7 +178,10 @@ try {
   const houseFile = flag('--house');
   if (houseFile) {
     const house = await readJson(houseFile);
-    const o = { x: 2440, y: ground, z: 2380 };
+    // --at <x,z>：换个地方盖（原地留着别的房子给人看时），默认 2440,2380。
+    const [ax, az] = (flag('--at') ?? '2440,2380').split(',').map(Number);
+    if (!Number.isInteger(ax) || !Number.isInteger(az)) throw new Error('--at 写成 x,z，比如 2390,2380');
+    const o = { x: ax, y: ground, z: az };
     // 清场和查垫脚的高度：至少 20 格，高的房子按它的高度多留几格。
     const top = Math.max(20, house.size.y + 4);
     await fixture(`forceload add ${o.x - 10} ${o.z - 10} ${o.x + house.size.x + 10} ${o.z + house.size.z + 10}`);

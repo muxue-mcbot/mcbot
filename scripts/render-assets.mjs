@@ -65,8 +65,14 @@ for (const [name, def] of Object.entries(states)) {
   for (const [k, v] of Object.entries(Block.fromStateId(known.defaultState, 0).getProperties())) props[k] = String(v);
   if (Object.keys(props).length) defaults[name] = props;
 }
+// 没有物品能放出来的方块（游戏里 asItem() 是空气：盆栽、蜡烛蛋糕、火、长成的瓜茎……），build 会拒绝。minecraft-data 没有方块到物品的表，
+// 按这几条认：没有同名物品，不是有物品的方块的贴墙版（wall_torch → torch），掉落物里也没有“自己不是方块”的物品
+// （carrot、pumpkin_seeds、glow_berries 这类放下去就是作物）。细雪（powder_snow，用桶放）会被误算进来。
+const noItem = mcData.blocksArray.map(b => b.name).filter(name => blocks[name] && !/(^|_)air$/.test(name) && !mcData.itemsByName[name]
+  && !(name.includes('wall_') && mcData.itemsByName[name.replace('wall_', '')])
+  && !(mcData.blockLoot[name]?.drops ?? []).some(drop => mcData.itemsByName[drop.item] && !mcData.blocksByName[drop.item]));
 
 const out = path.join(ROOT, 'client-runtime', 'render-assets.json.gz');
-const json = JSON.stringify({ version: VERSION, source: `prismarine-viewer ${require('prismarine-viewer/package.json').version} (MIT)`, colors, models, blocks, defaults });
+const json = JSON.stringify({ version: VERSION, source: `prismarine-viewer ${require('prismarine-viewer/package.json').version} (MIT)`, colors, models, blocks, defaults, noItem });
 fs.writeFileSync(out, zlib.gzipSync(json, { level: 9 }));
 console.log(`${path.relative(ROOT, out)}：${Object.keys(blocks).length} 种方块、${models.length} 个模型、${colors.length} 种颜色，${Math.round(json.length / 1024)} KB（压缩后 ${Math.round(fs.statSync(out).size / 1024)} KB）`);
