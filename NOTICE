@@ -5,3 +5,7 @@ Copyright 2026 muxue
 
 mcp-server/ 基于 yuniko-software/minecraft-mcp-server（Copyright 2025 Yuniko Software，
 Apache License 2.0），修改说明见 mcp-server/NOTICE。
+
+client-runtime/render-assets.json.gz 由 scripts/render-assets.mjs 从 prismarine-viewer
+（Copyright PrismarineJS，MIT License）的 1.21.1 方块模型数据生成，只保留方块形状和每个面的平均颜色，
+不含贴图本身。Minecraft 是 Mojang Studios 的商标，本项目与 Mojang、Microsoft 无关。

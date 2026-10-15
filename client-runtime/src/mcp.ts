@@ -18,7 +18,9 @@ import { summarizeOperation, summarizeObservation, summarizeContainer, farPlayer
 import { PlaceBook } from './places.js';
 import type { MachineWatch } from './machines.js';
 import { MeetWatch } from './meet-watch.js';
-import { BlueprintShelf, resolveCells, type Rotation, type Shape } from './blueprints.js';
+import { BlueprintShelf, editBlueprint, fromPalette, parseState, resolveCells, type Palette, type Rotation, type Shape } from './blueprints.js';
+import { blockProperties, renderVoxels } from './render.js';
+import { designGuide } from './design-guide.js';
 import { pluginGuides, pluginIndex, pluginNotes } from './plugins.js';
 import { toolInfo, looksOnly, TOOLS } from './tool-registry.js';
 import { Scheduler } from './scheduler.js';
@@ -31,6 +33,8 @@ const blockXyz = { x: coordinate.int(), y: coordinate.int(), z: coordinate.int()
 const registryId = z.string().regex(/^[a-z0-9_.-]+:[a-z0-9_/.-]+$/).describe('ID such as minecraft:stone');
 const resourceSelector = z.string().regex(/^#?[a-z0-9_.-]+:[a-z0-9_/.-]+$/).describe('Block ID or tag: minecraft:oak_log, #minecraft:logs, #c:ores, #c:ores/iron, #c:stones');
 const timeoutMs = z.number().int().min(500).max(120000).optional();
+/** A result with a picture (blueprints render): the image, then its text. */
+class PictureResult { constructor(readonly png: Buffer, readonly text: string) {} }
 /** chatFloor: ServerBody claim chatCursor; chat at or before it predates this control and is withheld from the model. */
 export function createMcpServer(rawBody: Body, events: EventJournal, options: { chatFloor?: number; companion?: CompanionMode; gather?: GatherTasks; tasks?: ContainerTasks; survival?: SurvivalTasks; reflexes?: SurvivalReflexes; stopCurrent?: StopCurrent; places?: PlaceBook; machines?: MachineWatch; meetWatch?: MeetWatch; blueprints?: BlueprintShelf; playerStop?: PlayerStop; memory?: MemoryStore } = {}): McpServer {
   const server = new McpServer({ name: 'mcbot-client-runtime', version: APP_VERSION });
@@ -141,7 +145,9 @@ export function createMcpServer(rawBody: Body, events: EventJournal, options: { 
         // The first use of a kind of play in this session brings its guide (guides.ts), after the result itself; then what players said meanwhile.
         const guide = events.guides?.forTool(name, args);
         const relayed = name === 'wait-for-events' ? undefined : relayEvents();
-        return { content: [{ type: 'text' as const, text: typeof result === 'string' ? result : JSON.stringify(result) }, ...[guide, relayed].filter((text): text is string => !!text).map(text => ({ type: 'text' as const, text }))] };
+        const first = result instanceof PictureResult ? [{ type: 'image' as const, data: result.png.toString('base64'), mimeType: 'image/png' }, { type: 'text' as const, text: result.text }]
+          : [{ type: 'text' as const, text: typeof result === 'string' ? result : JSON.stringify(result) }];
+        return { content: [...first, ...[guide, relayed].filter((text): text is string => !!text).map(text => ({ type: 'text' as const, text }))] };
       } catch (error) {
         const relayed = name === 'wait-for-events' ? undefined : relayEvents();
         return { isError: true, content: [{ type: 'text' as const, text: JSON.stringify({ code: error instanceof BodyError ? error.code : 'ERROR', message: (error as Error).message }) }, ...(relayed ? [{ type: 'text' as const, text: relayed }] : [])] };
@@ -457,25 +463,31 @@ export function createMcpServer(rawBody: Body, events: EventJournal, options: { 
   if (serverObserved && body.hello.capabilities.includes('build')) {
     const shelf = options.blueprints;
     const point = z.object({ x: coordinate, y: coordinate, z: coordinate });
+    const blockText = z.string().min(1).max(256);
+    const facing = z.enum(['north', 'south', 'east', 'west']);
     const design = {
-      blocks: z.array(z.object({ x: coordinate.int(), y: coordinate.int(), z: coordinate.int(), block: z.string().min(1).max(256).describe('/setblock style: oak_stairs[facing=east,half=bottom], oak_door[facing=west,hinge=left] (lower half), white_bed[facing=south] (foot); left out, axis is y (logs upright) and half/type bottom; "air" clears') })).max(4096).optional(),
+      blocks: z.array(z.object({ x: coordinate.int(), y: coordinate.int(), z: coordinate.int(), block: blockText.describe('/setblock style: oak_stairs[facing=east,half=bottom], oak_door[facing=west,hinge=left] (lower half), white_bed[facing=south] (foot); left out, axis is y (logs upright) and half/type bottom; "air" clears; "@role" from palette') })).max(4096).optional(),
       shapes: z.array(z.object({
-        shape: z.enum(['fill', 'hollow', 'walls', 'line', 'roof']).describe('roof: gable roof of the stairs block; from/to is its bottom layer, one wider than the walls'),
-        from: point, to: point, block: z.string().min(1).max(256),
-        ridge: z.enum(['x', 'z']).optional(), ridgeBlock: z.string().optional(), gableBlock: z.string().optional().describe('roof ends ("none": open)'),
-      })).max(32).optional().describe('Between two corners, inclusive'),
+        shape: z.enum(['fill', 'hollow', 'walls', 'line', 'roof', 'box', 'window', 'door', 'stairs']).describe('box: walls round from-to (floor/ceiling inside, frame posts and beams); window/door: an opening on one wall plane, facing the outside; stairs: steps from-to going up towards facing; roof: from/to is its bottom layer, one wider than the walls on the long sides. How to use them: blueprints action guide'),
+        from: point, to: point, block: blockText,
+        ridge: z.enum(['x', 'z']).optional(), ridgeBlock: blockText.optional(), gableBlock: blockText.optional().describe('gable ends ("none": open)'),
+        style: z.enum(['gable', 'hip']).optional(), pitch: z.union([z.literal(1), z.literal(0.5)]).optional().describe('roof: 1 stairs (default), 0.5 slabs'),
+        frame: blockText.optional(), floor: blockText.optional(), ceiling: blockText.optional(), pillarEvery: z.number().int().positive().optional(),
+        facing: facing.optional(), recess: z.boolean().optional(), sill: blockText.optional(), trim: blockText.optional(), hinge: z.enum(['left', 'right']).optional(), support: blockText.optional(),
+      })).max(64).optional().describe('Between two corners, inclusive; later ones win'),
+      palette: z.record(z.string().regex(/^[a-z][a-z0-9_]{0,19}$/), blockText).optional().describe('Materials by role ({"wall":"oak_planks"}), written "@wall" in any block'),
       blueprint: z.object({ name: z.string().min(1).max(40), origin: point.describe('Minimum corner after turning'), rotation: z.union([z.literal(0), z.literal(90), z.literal(180), z.literal(270)]).optional().describe('Clockwise from above') }).optional(),
     };
-    const cellsOf = (args: { blocks?: { x: number; y: number; z: number; block: string }[]; shapes?: Shape[]; blueprint?: { name: string; origin: { x: number; y: number; z: number }; rotation?: Rotation } }) => {
+    const cellsOf = (args: { blocks?: { x: number; y: number; z: number; block: string }[]; shapes?: Shape[]; palette?: Palette; blueprint?: { name: string; origin: { x: number; y: number; z: number }; rotation?: Rotation } }) => {
       if (args.blueprint && !shelf) throw new BodyError('UNSUPPORTED', '没有设置蓝图目录');
       const cells = resolveCells({
         ...(args.blueprint ? { blueprint: { blueprint: shelf!.load(args.blueprint.name), origin: args.blueprint.origin, rotation: args.blueprint.rotation ?? 0 } } : {}),
-        shapes: args.shapes, blocks: args.blocks?.map(b => ({ x: b.x, y: b.y, z: b.z, state: b.block })),
+        shapes: args.shapes, palette: args.palette, blocks: args.blocks?.map(b => ({ x: b.x, y: b.y, z: b.z, state: b.block })),
       });
       if (!cells.length) throw new BodyError('INVALID_ARGUMENT', '给 blocks、shapes 或 blueprint');
       return cells;
     };
-    register('build', 'Agree with the player first on what to build, where and facing which way. Build blocks, shapes and/or a saved blueprint (absolute coordinates; later wins: blueprint < shapes < blocks) with blocks from the inventory, in the given states (stairs, doors, beds...). It walks, pillars up and digs back its pillars by itself. replace: soft (default: plants and wrong states), all (anything but liquids and containers) or none. dryRun:true first: the material list (need/have/missing); get what is missing. INCOMPLETE or TIMEOUT: call again with the same arguments to continue.', {
+    register('build', 'Agree with the player first on what to build, where and facing which way; for a house, design it first with blueprints (guide, save, render). Build blocks, shapes and/or a saved blueprint (absolute coordinates; later wins: blueprint < shapes < blocks) with blocks from the inventory, in the given states (stairs, doors, beds...). It walks, pillars up and digs back its pillars by itself. replace: soft (default: plants and wrong states), all (anything but liquids and containers) or none. dryRun:true first: the material list (need/have/missing); get what is missing. INCOMPLETE or TIMEOUT: call again with the same arguments to continue.', {
       ...design, replace: z.enum(['none', 'soft', 'all']).optional(), dryRun: z.boolean().optional(),
       say: z.string().min(1).max(256).optional(), timeoutMs: z.number().int().min(10000).max(600000).optional(),
     }, async ({ say, replace, dryRun, timeoutMs, ...args }) => {
@@ -486,17 +498,53 @@ export function createMcpServer(rawBody: Body, events: EventJournal, options: { 
       return operationResult(await settle(await body.act('build', request), 15000));
     });
     if (shelf) {
-      register('blueprints', 'Blueprints for build. list: name, size, block count, description, main materials. save: keep blocks and/or shapes under name (stored relative to their minimum corner; overwrite replaces).', {
-        action: z.enum(['list', 'save']), name: z.string().min(1).max(40).optional(), description: z.string().max(200).optional(), blocks: design.blocks, shapes: design.shapes, overwrite: z.boolean().optional(),
-      }, async ({ action, name, description, overwrite, ...args }) => {
-        if (action === 'list') return shelf.list().map(blueprint => {
-          const counts = new Map<string, number>();
-          for (const block of blueprint.blocks) { const id = block[3].replace(/\[.*$/, '').replace(/^minecraft:/, ''); if (id !== 'air') counts.set(id, (counts.get(id) ?? 0) + 1); }
-          return { name: blueprint.name, size: blueprint.size, blocks: blueprint.blocks.length, description: blueprint.description, materials: Object.fromEntries([...counts].sort((a, b) => b[1] - a[1]).slice(0, 10)) };
-        });
-        if (!name) throw new BodyError('INVALID_ARGUMENT', 'save 要给 name');
-        const saved = shelf.save(name, description ?? '', cellsOf(args), overwrite === true);
-        return { saved: saved.name, size: saved.size, blocks: saved.blocks.length };
+      const materials = (blocks: [number, number, number, string][]) => {
+        const counts = new Map<string, number>();
+        for (const block of blocks) { const id = parseState(block[3]).name; if (id !== 'air') counts.set(id, (counts.get(id) ?? 0) + 1); }
+        return Object.fromEntries([...counts].sort((a, b) => b[1] - a[1]).slice(0, 10));
+      };
+      register('blueprints', 'Designing for build. guide: how to design with parts and palette, what to check (topic: a style it lists). list: name, size, block count, description, main materials. save: keep blocks/shapes/palette under name (stored relative to their minimum corner; overwrite replaces). render: a picture of a saved blueprint (name) or of a draft (blocks/shapes/palette): two 45° views, floor plans, and the plans as text; look at it before building and show it to the player (image:false for text only). edit: change a saved one in its own coordinates (replace materials, optionally within a box; remove boxes; set cells), to saveAs or with overwrite.', {
+        action: z.enum(['guide', 'list', 'save', 'render', 'edit']), name: z.string().min(1).max(40).optional(), description: z.string().max(200).optional(),
+        blocks: design.blocks, shapes: design.shapes, palette: design.palette, overwrite: z.boolean().optional(), topic: z.string().min(1).max(40).optional(),
+        front: facing.optional().describe('render: which side is the front (default south)'), image: z.boolean().optional(),
+        replace: z.array(z.object({ from: blockText, to: blockText })).max(32).optional().describe('edit: a bare name swaps every such block keeping facing/half…; a state only the ones it matches'),
+        within: z.object({ from: point, to: point }).optional(), remove: z.array(z.object({ from: point, to: point })).max(32).optional(),
+        set: design.blocks, saveAs: z.string().min(1).max(40).optional(),
+      }, async ({ action, name, description, overwrite, topic, front, image, replace, within, remove, set, saveAs, ...args }) => {
+        if (action === 'guide') return designGuide(topic);
+        if (action === 'list') return shelf.list().map(blueprint => ({ name: blueprint.name, size: blueprint.size, blocks: blueprint.blocks.length, description: blueprint.description, materials: materials(blueprint.blocks) }));
+        if (action === 'render') {
+          const drafted = !!(args.blocks?.length || args.shapes?.length);
+          if (!!name === drafted) throw new BodyError('INVALID_ARGUMENT', 'render 给 name（存好的蓝图）或者 blocks/shapes（草稿），只给一种');
+          const cells = name ? shelf.load(name).blocks.map(([x, y, z, state]) => ({ x, y, z, state })) : cellsOf(args);
+          const voxels = cells.map(c => ({ x: c.x, y: c.y, z: c.z, ...parseState(c.state) })).filter(v => v.name !== 'air');
+          if (!voxels.length) throw new BodyError('INVALID_ARGUMENT', '里面没有方块');
+          const xs = voxels.map(v => v.x), ys = voxels.map(v => v.y), zs = voxels.map(v => v.z);
+          const what = `${name ? `蓝图「${name}」` : '草稿'}，${Math.max(...xs) - Math.min(...xs) + 1}×${Math.max(...ys) - Math.min(...ys) + 1}×${Math.max(...zs) - Math.min(...zs) + 1}（x×y×z），${voxels.length} 格${name ? '，坐标是蓝图里的相对坐标' : ''}`;
+          const drawn = renderVoxels(voxels, { front });
+          return image === false ? `${what}\n${drawn.caption}` : new PictureResult(drawn.png, `${what}\n${drawn.caption}`);
+        }
+        if (!name) throw new BodyError('INVALID_ARGUMENT', `${action} 要给 name`);
+        if (action === 'save') {
+          const saved = shelf.save(name, description ?? '', cellsOf(args), overwrite === true);
+          return { saved: saved.name, size: saved.size, blocks: saved.blocks.length };
+        }
+        if (!replace?.length && !remove?.length && !set?.length) throw new BodyError('INVALID_ARGUMENT', 'edit 给 replace、remove 或 set，说要改什么');
+        if (!saveAs && !overwrite) throw new BodyError('INVALID_ARGUMENT', `改完存到哪：saveAs 存成新蓝图（原来的留着），或者 overwrite: true 直接改「${name}」`);
+        const old = shelf.load(name);
+        const edited = editBlueprint(old, {
+          replace: replace?.map((r: { from: string; to: string }) => ({ ...r, to: fromPalette(r.to, args.palette) })), within, remove,
+          set: set?.map((b: { x: number; y: number; z: number; block: string }) => ({ ...b, block: fromPalette(b.block, args.palette) })),
+        }, blockProperties);
+        const target = saveAs ?? name;
+        const saved = shelf.save(target, description ?? old.description, edited.cells, overwrite === true, saveAs ? `由「${name}」改出来（${old.source}）` : old.source);
+        const shift = ['x', 'y', 'z'].map(k => Math.min(...edited.cells.map(c => c[k as 'x' | 'y' | 'z'])));
+        return {
+          saved: saved.name, size: saved.size, blocks: saved.blocks.length, materials: materials(saved.blocks),
+          ...(edited.replaced.length ? { replaced: Object.fromEntries(edited.replaced.map(([rule, n]) => [rule, n || '一格都没对上，检查名字和属性'])) } : {}),
+          ...(remove?.length ? { removed: edited.removed } : {}), ...(set?.length ? { set: edited.set } : {}),
+          ...(shift.some(Boolean) ? { note: `最小角变了，坐标整体挪了 (${shift.map(v => -v).join(', ')})` } : {}),
+        };
       });
     }
   }

@@ -65,7 +65,7 @@ node dist/main.js --body client --connection-file "C:/path/to/instance/config/mc
 
 **2026-10-11 起 ServerBody 的工具合并了**（[工具整理方案](../docs/tool_consolidation_plan.md)），服务端动作名和协议不变，下面各段落里的旧工具名是当时的写法，对应关系是：
 - `go-to`：`move-to-position`、`travel-to`、`go-to-place`、`approach-player`。给 `x/z`（`y` 可选）、`place` 或 `player` 其中一个；32 格内、给了 `y` 的走普通导航，远了、没给 `y`、带 `meet` 或目标区块没加载的走 `travel-to`。
-- `places`（`remember`／`list`／`forget`）、`blueprints`（`list`／`save`）、`pillar`（`up` 或 `down`）、`get-up`（躺着就 `wake-up`，否则 `stand-up`）。
+- `places`（`remember`／`list`／`forget`）、`blueprints`（`guide`／`list`／`save`／`render`／`edit`，10-15 加了设计参考、画图和改蓝图，见[建筑设计](../docs/building_design.md)）、`pillar`（`up` 或 `down`）、`get-up`（躺着就 `wake-up`，否则 `stand-up`）。
 - `container-menu`（`open`／`read`／`click`／`close`）：每一步按原来那个工具的参数严格核对，菜单 guard 照旧必填；`read` 只看，身体忙时也不拒绝。
 - `get-status` 加 `include`：`inventory` 给完整背包，`survival` 给危险、威胁和进食／防卫策略；`get-position`、`list-inventory`、`get-companion-mode`、`get-survival-state` 不再单独发布。
 - `equip-item` 加 `hand:"main"`：把背包里的东西拿到主手（原来的 `prepare-item`，快捷栏里的只选中，原来的 `select-slot`）；`emote` 不带 `name` 只转身看玩家或坐标（原来的 `look-at`）。

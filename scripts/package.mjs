@@ -17,8 +17,8 @@ import { writeShellNotices } from './shell-notices.mjs';
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 // 程序目录里跑的入口；它们 import 的同目录脚本会自动带上
 export const ENTRIES = ['webui.mjs', 'start-server-play.mjs', 'companion.mjs'];
-// client-runtime 里随包带的文件（dist 和运行依赖另外处理）；scripts 按文件读的 JSON（工具表、叫停词、记忆上限、托管时长）都要列在这里，不然绿色版启动就报缺文件
-export const RUNTIME_FILES = ['package.json', 'package-lock.json', 'README.md', 'tool-registry.json', 'player-stop.json', 'memory-limits.json', 'host-timing.json'];
+// client-runtime 里随包带的文件（dist 和运行依赖另外处理）；scripts 按文件读的 JSON（工具表、叫停词、记忆上限、托管时长）、运行端读的画图方块数据和设计参考都要列在这里，不然绿色版启动或画图就报缺文件
+export const RUNTIME_FILES = ['package.json', 'package-lock.json', 'README.md', 'tool-registry.json', 'player-stop.json', 'memory-limits.json', 'host-timing.json', 'render-assets.json.gz', 'building-guide.md'];
 export const ASSETS = ['webui-page.html'];
 const TOP_FILES = ['compat.json', 'LICENSE', 'NOTICE', 'CLAUDE.md'];
 // 程序目录里不该有的用户数据目录：目标目录里有它们就拒绝打包，免得连数据一起删掉

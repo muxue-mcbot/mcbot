@@ -11,6 +11,7 @@
 - 服务端、运行端、驱动器三层各管哪些状态，`runtime/` 里的文件谁写谁读，见[状态归属](state_ownership.md)。
 - 托管的两个时长（心跳多久算新鲜、叫停多久没确认就兜底撤销）只写在 `client-runtime/host-timing.json`，驱动器、WebUI（经 `scripts/host-timing.mjs`）和运行端、旧 `mcp-server` 的 `presence.ts` 都读它；见[状态归属](state_ownership.md)第 4、6 条。
 - 长期记忆：运行端 `client-runtime/src/memory.ts`、`memory-tools.ts`（字数上限在 `client-runtime/memory-limits.json`），驱动器 `scripts/driver/memory.mjs`、`consolidation.mjs`，WebUI `scripts/webui-memory.mjs`；见[记忆方案](memory_plan.md)。
+- 建筑设计：零件和材料表在 `client-runtime/src/blueprints.ts`，画图在 `render.ts`（读 `client-runtime/render-assets.json.gz`；换 MC 版本或改生成方式时先在 `mcp-server` 里 `npm ci`，再跑 `node scripts/render-assets.mjs`），给模型的设计参考是 `client-runtime/building-guide.md`；见[建筑设计](building_design.md)。
 - `mcp-server/`：保留的Mineflayer实现及宿主回归；真实验证用的协议测试玩家也依赖其依赖包。它不是新ServerBody的产品依赖。
 - `mods/mcbot-control/`、`mods/mcbot-server-spike/`：保留的ClientBody与早期服务端实验，不作为默认主线继续扩大。
 
