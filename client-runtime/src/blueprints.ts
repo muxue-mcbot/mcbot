@@ -27,7 +27,10 @@ export interface Shape {
 /** Materials by role ("wall": "white_terracotta"), written as "@wall" or "@wall[props]" wherever a block goes. */
 export type Palette = Record<string, string>;
 
+/** One build, and one part of a design. */
 export const MAX_CELLS = 4096;
+/** A saved design (save, render, edit): 10-16 the player wanted 30×30 houses, more than one build takes. */
+export const MAX_DESIGN = 2 * MAX_CELLS;
 const NAME = /^[\p{L}\p{N}_-]{1,40}$/u;
 const STATE = /^(?:[a-z0-9_.-]+:)?[a-z0-9_./-]+(?:\[[a-z0-9_]+=[a-z0-9_]+(?:,[a-z0-9_]+=[a-z0-9_]+)*\])?$/;
 export const validState = (text: string) => STATE.test(text);
@@ -291,8 +294,9 @@ export function shapeCells(s: Shape): Cell[] {
       return Array.from({ length: n + 1 }, (_, i) => { const t = n ? i / n : 0; return { x: Math.round(a.x + (b.x - a.x) * t), y: Math.round(a.y + (b.y - a.y) * t), z: Math.round(a.z + (b.z - a.z) * t), state }; });
     }
   }
-  const volume = (x2 - x1 + 1) * (y2 - y1 + 1) * (z2 - z1 + 1);
-  if (volume > MAX_CELLS) throw new BodyError('INVALID_ARGUMENT', `区域太大：${volume} 格，一次最多 ${MAX_CELLS} 格`);
+  // The cells it makes: walls and a hollow shell only their sides (a 30-wide ring of walls is no more than a few hundred).
+  const [w, h, d] = [x2 - x1 + 1, y2 - y1 + 1, z2 - z1 + 1], ring = 2 * (w + d);
+  tooMany(s.shape === 'fill' ? w * h * d : s.shape === 'walls' ? ring * h : ring * h + 2 * w * d, '区域');
   const out: Cell[] = [];
   for (let y = y1; y <= y2; y++) for (let x = x1; x <= x2; x++) for (let z = z1; z <= z2; z++) {
     const side = x === x1 || x === x2 || z === z1 || z === z2;
@@ -349,7 +353,7 @@ export function placeBlueprint(blueprint: Blueprint, origin: Position, rotation:
 }
 
 /** Blueprint, then shapes, then single blocks; a later cell at the same spot wins. "air" clears. "@role" comes from the palette. */
-export function resolveCells(input: { blueprint?: { blueprint: Blueprint; origin: Position; rotation: Rotation }; shapes?: Shape[]; blocks?: Cell[]; palette?: Palette }): Cell[] {
+export function resolveCells(input: { blueprint?: { blueprint: Blueprint; origin: Position; rotation: Rotation }; shapes?: Shape[]; blocks?: Cell[]; palette?: Palette }, limit = MAX_CELLS): Cell[] {
   const cells = new Map<string, Cell>();
   const put = (c: Cell) => {
     if (!validState(c.state)) throw new BodyError('INVALID_ARGUMENT', `方块写法不对：${c.state}（比如 oak_stairs[facing=east,half=bottom]）`);
@@ -358,7 +362,7 @@ export function resolveCells(input: { blueprint?: { blueprint: Blueprint; origin
   if (input.blueprint) for (const c of placeBlueprint(input.blueprint.blueprint, input.blueprint.origin, input.blueprint.rotation)) put(c);
   for (const s of input.shapes ?? []) for (const c of shapeCells(resolveShape(s, input.palette))) put(c);
   for (const c of input.blocks ?? []) put({ ...c, state: fromPalette(c.state, input.palette) });
-  if (cells.size > MAX_CELLS) throw new BodyError('INVALID_ARGUMENT', `目标太多：${cells.size} 格，一次最多 ${MAX_CELLS} 格，请分批`);
+  if (cells.size > limit) throw new BodyError('INVALID_ARGUMENT', limit === MAX_CELLS ? `目标太多：${cells.size} 格，一次最多 ${MAX_CELLS} 格，请分批` : `设计太大：${cells.size} 格，一张蓝图最多 ${limit} 格`);
   return [...cells.values()];
 }
 
@@ -398,7 +402,7 @@ export function editBlueprint(blueprint: Blueprint, edit: BlueprintEdit, propert
   }
   cells = [...map.values()];
   if (!cells.length) throw new BodyError('INVALID_ARGUMENT', '改完蓝图里一格都不剩了');
-  if (cells.length > MAX_CELLS) throw new BodyError('INVALID_ARGUMENT', `改完有 ${cells.length} 格，蓝图最多 ${MAX_CELLS} 格`);
+  if (cells.length > MAX_DESIGN) throw new BodyError('INVALID_ARGUMENT', `改完有 ${cells.length} 格，蓝图最多 ${MAX_DESIGN} 格`);
   return { cells, replaced, removed, set: set.length };
 }
 

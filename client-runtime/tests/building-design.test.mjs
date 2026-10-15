@@ -9,9 +9,10 @@ import { InMemoryTransport } from '@modelcontextprotocol/sdk/inMemory.js';
 import { ServerBody } from '../dist/server-body.js';
 import { createMcpServer } from '../dist/mcp.js';
 import { EventJournal } from '../dist/events.js';
-import { BlueprintShelf, editBlueprint, resolveCells, shapeCells, roofCells } from '../dist/blueprints.js';
+import { BlueprintShelf, MAX_DESIGN, editBlueprint, resolveCells, shapeCells, roofCells } from '../dist/blueprints.js';
 import { blockProperties, detectFloors, placedByNoItem, renderVoxels, textPlan } from '../dist/render.js';
 import { designGuide } from '../dist/design-guide.js';
+import { backwardStairs, walkDesign } from '../dist/walk.js';
 import { parseState } from '../dist/blueprints.js';
 import { mockServerControl, serverCapabilities } from './mock-server-control.mjs';
 
@@ -152,6 +153,18 @@ test('edit: replace keeps the properties the new block has, within a box only; r
   assert.throws(() => editBlueprint(blueprint, { remove: [{ from: p(0, 0, 0), to: p(9, 9, 9) }] }, blockProperties), /一格都不剩/);
 });
 
+test('size: a design may hold twice what one build takes; one part as much as a build; walls count only their sides', () => {
+  // Two floors of 64×64: 8192 cells, each one part's worth.
+  const floors = [0, 1].map(y => ({ shape: 'fill', from: p(0, y, 0), to: p(63, y, 63), block: 'stone' }));
+  assert.equal(resolveCells({ shapes: floors }, MAX_DESIGN).length, MAX_DESIGN);
+  assert.throws(() => resolveCells({ shapes: floors }), /目标太多：8192 格，一次最多 4096 格/, 'one build');
+  assert.throws(() => resolveCells({ shapes: [...floors, { shape: 'fill', from: p(0, 2, 0), to: p(0, 2, 0), block: 'stone' }] }, MAX_DESIGN), /设计太大：8193 格，一张蓝图最多 8192 格/);
+  assert.throws(() => shapeCells({ shape: 'fill', from: p(0, 0, 0), to: p(64, 0, 63), block: 'stone' }), /区域太大/, 'a part is no more than one build');
+  assert.equal(shapeCells({ shape: 'walls', from: p(0, 0, 0), to: p(29, 11, 29), block: 'stone' }).length, 116 * 12, 'a 30-wide ring of walls, bigger than a build as a box');
+  const big = { version: 1, name: 'b', description: '', size: p(64, 2, 64), createdAt: '', source: '', blocks: resolveCells({ shapes: floors }, MAX_DESIGN).map(c => [c.x, c.y, c.z, c.state]) };
+  assert.throws(() => editBlueprint(big, { set: [{ x: 0, y: 2, z: 0, block: 'stone' }] }, blockProperties), /改完有 8193 格，蓝图最多 8192 格/);
+});
+
 test('render: a PNG with two views and floor plans, and the plans as text (door, windows, walls) for models without pictures', () => {
   const cells = exampleCells();
   const voxels = voxelsOf(cells);
@@ -199,6 +212,43 @@ async function setup(t) {
   return { call, shelf, mock };
 }
 
+test('walk: from the ground outside through the door, up stairs with three blocks over every step; not a room shut by a table, not stairs that hit the head', () => {
+  const walk = (shapes, blocks = []) => walkDesign(resolveCells({ shapes, palette: guideExample().palette, blocks }).map(c => [c.x, c.y, c.z, c.state])).unreachable;
+  const house = guideExample().shapes;
+  assert.deepEqual(walk(house), [], 'the example house: in through its door');
+  assert.deepEqual(walk(house.filter(s => s.shape !== 'door')), ['脚踩 y=0 的一片 77 格（x 1～11，z 1～7）']);
+  const twoFloors = [
+    { shape: 'box', from: p(0, 0, 0), to: p(8, 9, 6), block: 'stone_bricks', floor: 'oak_planks' },
+    { shape: 'fill', from: p(1, 5, 1), to: p(7, 5, 5), block: 'oak_planks' }, { shape: 'fill', from: p(1, 9, 1), to: p(7, 9, 5), block: 'oak_planks' },
+    { shape: 'stairs', from: p(1, 1, 1), to: p(4, 4, 2), block: 'oak_stairs', facing: 'east', support: 'cobblestone' },
+    { shape: 'door', from: p(6, 1, 0), to: p(6, 2, 0), block: 'oak_door', facing: 'north' }];
+  assert.deepEqual(walk(twoFloors), [], 'up the stairs to the upper floor (its last step a jump: players mostly auto-jump)');
+  assert.deepEqual(walk([...twoFloors, { shape: 'fill', from: p(2, 5, 1), to: p(2, 5, 2), block: 'oak_planks' }]), ['脚踩 y=3～5 的一片 39 格（x 1～7，z 1～5）'], 'two blocks over a step: the head hits the floor above');
+  // A partition at x=8 with an opening at z=4.
+  const rooms = through => [...house, { shape: 'fill', from: p(8, 1, 1), to: p(8, 4, 7), block: 'spruce_planks' }, { shape: 'fill', from: p(8, 1, 4), to: p(8, 2, 4), block: 'air' },
+    ...(through ? [{ shape: 'fill', from: p(8, 1, 4), to: p(8, 1, 4), block: through }] : [])];
+  assert.deepEqual(walk(rooms()), [], 'through the opening; the top of the partition under the roof is no room');
+  assert.deepEqual(walk(rooms('crafting_table')), ['脚踩 y=0 的一片 21 格（x 9～11，z 1～7）'], 'furniture is not climbed over');
+  assert.deepEqual(walk(rooms('oak_fence')), ['脚踩 y=0 的一片 21 格（x 9～11，z 1～7）']);
+  assert.deepEqual(walk(rooms('oak_carpet')), []);
+});
+
+test('stairs the wrong way round: a chair with its back to the table, a bench facing the wall, a door step rising away from the door; not a flight', () => {
+  const floor = Array.from({ length: 4 }, (_, x) => [x, 0, 0, 'oak_planks']);
+  const turned = (...cells) => backwardStairs([...floor, ...cells]);
+  const table = [[2, 1, 0, 'oak_fence'], [2, 2, 0, 'oak_pressure_plate']];
+  assert.deepEqual(turned(...table, [1, 1, 0, 'oak_stairs[facing=west]']), [], 'facing is the back: looking east at the table');
+  assert.deepEqual(turned(...table, [1, 1, 0, 'oak_stairs[facing=east]']), ['(1,1,0) oak_stairs[facing=east] 椅背对着桌子']);
+  const wall = [[0, 1, 0, 'stone_bricks'], [0, 2, 0, 'stone_bricks']];
+  assert.deepEqual(turned(...wall, [1, 1, 0, 'oak_stairs[facing=west]']), [], 'a bench with its back to the wall');
+  assert.deepEqual(turned(...wall, [1, 1, 0, 'oak_stairs[facing=east]']), ['(1,1,0) oak_stairs[facing=east] 高的一边朝着空处，低的一边顶着方块']);
+  assert.deepEqual(turned([0, 1, 0, 'oak_planks'], [1, 1, 0, 'stone_brick_stairs[facing=east]']), ['(1,1,0) stone_brick_stairs[facing=east] 高的一边朝着空处，低的一边顶着方块'], 'a door step that rises away from the raised floor');
+  assert.deepEqual(turned([0, 1, 0, 'oak_planks'], [1, 1, 0, 'stone_brick_stairs[facing=west]']), []);
+  const flight = shapeCells({ shape: 'stairs', from: p(0, 1, 0), to: p(3, 4, 0), block: 'oak_stairs', facing: 'east', support: 'cobblestone' }).filter(c => c.state !== 'air');
+  assert.deepEqual(backwardStairs([...floor, ...flight.map(c => [c.x, c.y, c.z, c.state])]), []);
+  assert.deepEqual(backwardStairs(exampleCells().map(c => [c.x, c.y, c.z, c.state])), [], 'the example house');
+});
+
 test('blueprints tool: guide, save with a palette, render a draft or a saved one (picture, or text only), edit to a new name', async t => {
   const { call, shelf, mock } = await setup(t);
   assert.match((await call({ action: 'guide' })).content[0].text, /## 流程/);
@@ -237,5 +287,10 @@ test('blueprints tool: guide, save with a palette, render a draft or a saved one
   assert.equal(saved.unknown, undefined);
   assert.equal(saved.unplaceable, undefined);
   assert.equal(saved.shaky, undefined);
+  assert.equal(saved.walk, undefined);
+  assert.equal(saved.stairs, undefined);
+  const shut = JSON.parse((await call({ action: 'save', name: '没门', ...design, shapes: design.shapes.filter(s => s.shape !== 'door') })).content[0].text);
+  assert.match(shut.walk, /到不了这些室内地方：脚踩 y=0 的一片 77 格（x 2～12，z 2～8）。常见原因：没门/, "in the saved blueprint's own coordinates");
+  assert.match((await call({ action: 'render', name: '没门', image: false })).content[0].text, /到不了这些室内地方/);
   assert.equal(mock.calls.filter(c => c.method === 'act').length, 0, 'designing never moves the body');
 });

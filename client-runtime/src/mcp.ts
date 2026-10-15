@@ -18,7 +18,8 @@ import { summarizeOperation, summarizeObservation, summarizeContainer, farPlayer
 import { PlaceBook } from './places.js';
 import type { MachineWatch } from './machines.js';
 import { MeetWatch } from './meet-watch.js';
-import { BlueprintShelf, editBlueprint, fromPalette, parseState, resolveCells, shakyCells, type Palette, type Rotation, type Shape } from './blueprints.js';
+import { backwardStairs, walkDesign } from './walk.js';
+import { BlueprintShelf, MAX_DESIGN, editBlueprint, fromPalette, parseState, resolveCells, shakyCells, type Palette, type Rotation, type Shape } from './blueprints.js';
 import { blockProperties, placedByNoItem, renderVoxels } from './render.js';
 import { designGuide } from './design-guide.js';
 import { pluginGuides, pluginIndex, pluginNotes } from './plugins.js';
@@ -474,17 +475,18 @@ export function createMcpServer(rawBody: Body, events: EventJournal, options: { 
         style: z.enum(['gable', 'hip']).optional(), pitch: z.union([z.literal(1), z.literal(0.5)]).optional().describe('roof: 1 stairs (default), 0.5 slabs'),
         rings: z.number().int().positive().optional().describe('roof: only this many outer rings, no ridge or gable ends (an eave skirt)'),
         frame: blockText.optional(), floor: blockText.optional(), ceiling: blockText.optional(), pillarEvery: z.number().int().positive().optional(),
-        facing: facing.optional(), recess: z.boolean().optional(), sill: blockText.optional(), trim: blockText.optional().describe('window/door: a frame round it; roof: stairs edging the eaves and gable edges (hip: and hip lines)'), hinge: z.enum(['left', 'right']).optional(), support: blockText.optional(),
+        facing: facing.optional(), recess: z.boolean().optional().describe('window: glass one block in; only on a wall two thick, on a one-block wall it juts into the room'), sill: blockText.optional(), trim: blockText.optional().describe('window/door: a frame round it; roof: stairs edging the eaves and gable edges (hip: and hip lines)'), hinge: z.enum(['left', 'right']).optional(), support: blockText.optional(),
       })).max(64).optional().describe('Between two corners, inclusive; later ones win'),
       palette: z.record(z.string().regex(/^[a-z][a-z0-9_]{0,19}$/), blockText).optional().describe('Materials by role ({"wall":"oak_planks"}), written "@wall" in any block'),
       blueprint: z.object({ name: z.string().min(1).max(40), origin: point.describe('Minimum corner after turning'), rotation: z.union([z.literal(0), z.literal(90), z.literal(180), z.literal(270)]).optional().describe('Clockwise from above') }).optional(),
     };
-    const cellsOf = (args: { blocks?: { x: number; y: number; z: number; block: string }[]; shapes?: Shape[]; palette?: Palette; blueprint?: { name: string; origin: { x: number; y: number; z: number }; rotation?: Rotation } }) => {
+    // A design may be bigger than one build (MAX_DESIGN, MAX_CELLS).
+    const cellsOf = (args: { blocks?: { x: number; y: number; z: number; block: string }[]; shapes?: Shape[]; palette?: Palette; blueprint?: { name: string; origin: { x: number; y: number; z: number }; rotation?: Rotation } }, limit?: number) => {
       if (args.blueprint && !shelf) throw new BodyError('UNSUPPORTED', '没有设置蓝图目录');
       const cells = resolveCells({
         ...(args.blueprint ? { blueprint: { blueprint: shelf!.load(args.blueprint.name), origin: args.blueprint.origin, rotation: args.blueprint.rotation ?? 0 } } : {}),
         shapes: args.shapes, palette: args.palette, blocks: args.blocks?.map(b => ({ x: b.x, y: b.y, z: b.z, state: b.block })),
-      });
+      }, limit);
       if (!cells.length) throw new BodyError('INVALID_ARGUMENT', '给 blocks、shapes 或 blueprint');
       return cells;
     };
@@ -506,17 +508,21 @@ export function createMcpServer(rawBody: Body, events: EventJournal, options: { 
       };
       // What the server refuses at build time: names the game does not have (an old name like grass_path, a typo), blocks no item
       // places (a potted plant, 10-16 a trial design's potted_bamboo stopped the whole build) and double slabs. Mod blocks are not judged.
-      // Then what will not stay once built (a door with its top taken, powder over a gap).
+      // Then what will not stay once built (a door with its top taken, powder over a gap), stairs written the wrong way round, and
+      // the rooms a player walking in from outside does not get to (10-16: no door, stairs that hit the head, a room a table
+      // shuts; the models did not see them).
       const unknown = (cells: [number, number, number, string][]) => {
         const blocks = [...new Set(cells.map(c => c[3]))].map(parseState).filter(s => s.name !== 'air' && !s.name.includes(':'));
         const named = (keep: (s: { name: string; props: Record<string, string> }) => boolean) => [...new Set(blocks.filter(keep).map(s => s.name))];
         const names = named(s => blockProperties(s.name) === undefined);
         const noItem = named(s => placedByNoItem(s.name)), doubled = named(s => s.name.endsWith('_slab') && s.props.type === 'double');
-        const shaky = shakyCells(cells);
+        const shaky = shakyCells(cells), walk = walkDesign(cells).unreachable, turned = backwardStairs(cells);
         return {
           ...(names.length ? { unknown: `原版 1.21.1 没有这些方块，盖的时候会失败，换掉：${names.join('、')}` } : {}),
           ...(noItem.length || doubled.length ? { unplaceable: `游戏里没有物品能直接放出这些，盖的时候会失败，换掉：${[...noItem, ...doubled.map(n => `${n}[type=double]`)].join('、')}（盆栽写空的 flower_pot，双层台阶写整块）` } : {}),
           ...(shaky.length ? { shaky: `盖好以后站不住：${shaky.slice(0, 6).join('；')}${shaky.length > 6 ? `……共 ${shaky.length} 处` : ''}` } : {}),
+          ...(turned.length ? { stairs: `这些楼梯多半放反了（facing 是楼梯高的那一边：椅子写椅背那边，台阶写往上走的方向）：${turned.slice(0, 6).join('；')}${turned.length > 6 ? `……共 ${turned.length} 处` : ''}` } : {}),
+          ...(walk.length ? { walk: `玩家从外面走进来到不了这些室内地方：${walk.join('；')}。常见原因：没门、门口比地面高一格以上又没台阶、楼梯每级上面不够三格空（撞头）、楼梯顶上接不到楼板、家具把路堵死。不打算住人的阁楼空间可以不管` } : {}),
         };
       };
       register('blueprints', 'Designing for build. guide: how to design with parts and palette, what to check (topic: a style it lists). list: name, size, block count, description, main materials. save: keep blocks/shapes/palette under name (stored relative to their minimum corner; overwrite replaces). render: a picture of a saved blueprint (name) or of a draft (blocks/shapes/palette): two 45° views, floor plans, and the plans as text (image:false for text only); only you see it, the player does not: check it, fix, then tell the player in a few words. edit: change a saved one in its own coordinates (replace materials, optionally within a box; remove boxes; set cells), to saveAs or with overwrite.', {
@@ -532,7 +538,7 @@ export function createMcpServer(rawBody: Body, events: EventJournal, options: { 
         if (action === 'render') {
           const drafted = !!(args.blocks?.length || args.shapes?.length);
           if (!!name === drafted) throw new BodyError('INVALID_ARGUMENT', 'render 给 name（存好的蓝图）或者 blocks/shapes（草稿），只给一种');
-          const cells = name ? shelf.load(name).blocks.map(([x, y, z, state]) => ({ x, y, z, state })) : cellsOf(args);
+          const cells = name ? shelf.load(name).blocks.map(([x, y, z, state]) => ({ x, y, z, state })) : cellsOf(args, MAX_DESIGN);
           const voxels = cells.map(c => ({ x: c.x, y: c.y, z: c.z, ...parseState(c.state) })).filter(v => v.name !== 'air');
           if (!voxels.length) throw new BodyError('INVALID_ARGUMENT', '里面没有方块');
           const xs = voxels.map(v => v.x), ys = voxels.map(v => v.y), zs = voxels.map(v => v.z);
@@ -541,12 +547,12 @@ export function createMcpServer(rawBody: Body, events: EventJournal, options: { 
           // Models took the first picture as done and told the player to look at it (10-15 trials).
           const check = '这张图只有你看得到，玩家看不到。第一版一般都有毛病：按设计参考「看图检查」逐条看，改掉（edit 或重新 save）再画；没毛病了再用几句话跟玩家说外观、大小和要备的料。';
           const strange = unknown(cells.map(c => [c.x, c.y, c.z, c.state] as [number, number, number, string]));
-          const text = `${what}\n${check}\n${strange.unknown ? `${strange.unknown}（图里画成品红色）\n` : ''}${[strange.unplaceable, strange.shaky].filter(Boolean).map(s => `${s}\n`).join('')}${drawn.caption}`;
+          const text = `${what}\n${check}\n${strange.unknown ? `${strange.unknown}（图里画成品红色）\n` : ''}${[strange.unplaceable, strange.shaky, strange.stairs, strange.walk].filter(Boolean).map(s => `${s}\n`).join('')}${drawn.caption}`;
           return image === false ? text : new PictureResult(drawn.png, text);
         }
         if (!name) throw new BodyError('INVALID_ARGUMENT', `${action} 要给 name`);
         if (action === 'save') {
-          const saved = shelf.save(name, description ?? '', cellsOf(args), overwrite === true);
+          const saved = shelf.save(name, description ?? '', cellsOf(args, MAX_DESIGN), overwrite === true);
           return { saved: saved.name, size: saved.size, blocks: saved.blocks.length, ...unknown(saved.blocks) };
         }
         if (!replace?.length && !remove?.length && !set?.length) throw new BodyError('INVALID_ARGUMENT', 'edit 给 replace、remove 或 set，说要改什么');
