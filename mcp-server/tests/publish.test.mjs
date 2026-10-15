@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { parsePublishArgs, publishPlan } from '../../scripts/publish.mjs';
+import { parsePublishArgs, publishPlan, filesToUpload } from '../../scripts/publish.mjs';
 
 test('publish arguments: a target is required, ssh and dir go together and are checked', () => {
   assert.throws(() => parsePublishArgs([]), /--ssh\/--dir 或 --github/);
@@ -10,6 +10,24 @@ test('publish arguments: a target is required, ssh and dir go together and are c
   assert.throws(() => parsePublishArgs(['--ssh', 'uma', '--dir', "C:\\a'b"]), /特殊字符/);
   const o = parsePublishArgs(['--ssh', 'uma', '--dir', 'C:\\Users\\me\\Desktop\\site', '--github', '--dry-run']);
   assert.deepEqual([o.ssh, o.dir, o.github, o.dryRun], ['uma', 'C:\\Users\\me\\Desktop\\site', true, true]);
+});
+
+test('publish arguments: downloads can go to a separate Linux server, but index.json still needs --ssh', () => {
+  assert.throws(() => parsePublishArgs(['--files-ssh', 'hkvps', '--github']), /--files-ssh 和 --files-dir 要一起写/);
+  assert.throws(() => parsePublishArgs(['--files-ssh', 'hkvps', '--files-dir', '/www/wwwroot/mcbot-downloads', '--github']), /还要用 --ssh\/--dir/);
+  assert.throws(() => parsePublishArgs(['--files-ssh', 'hk vps', '--files-dir', '/srv/d', '--ssh', 'uma', '--dir', 'C:\\site']), /--files-ssh 只写主机名/);
+  for (const bad of ['C:\\site', 'srv/d', "/srv/a'b", '/srv/a;rm']) {
+    assert.throws(() => parsePublishArgs(['--files-ssh', 'hkvps', '--files-dir', bad, '--ssh', 'uma', '--dir', 'C:\\site']), /Linux 的绝对路径/);
+  }
+  const o = parsePublishArgs(['--github', '--files-ssh', 'hkvps', '--files-dir', '/www/wwwroot/mcbot-downloads', '--ssh', 'uma', '--dir', 'C:\\site']);
+  assert.deepEqual([o.filesSsh, o.filesDir, o.ssh, o.dir], ['hkvps', '/www/wwwroot/mcbot-downloads', 'uma', 'C:\\site']);
+});
+
+test('files to upload: same name and size is skipped, a different size stops, the rest are uploaded', () => {
+  const files = [{ file: 'app/a.exe', size: 40 }, { file: 'core/c.jar', size: 4 }, { file: 'plugins/p.jar', size: 2 }];
+  assert.deepEqual(filesToUpload(files, new Map([['app/a.exe', 40]]), '下载服务器'), ['core/c.jar', 'plugins/p.jar']);
+  assert.deepEqual(filesToUpload(files, new Map(), '下载服务器'), ['app/a.exe', 'core/c.jar', 'plugins/p.jar']);
+  assert.throws(() => filesToUpload(files, new Map([['core/c.jar', 5]]), '下载服务器'), /下载服务器上已有 core\/c\.jar，大小不同/);
 });
 
 test('publish plan: the app release carries the installer and the core jar, each plugin its own tag', () => {
