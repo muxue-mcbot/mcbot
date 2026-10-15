@@ -1,7 +1,8 @@
 <!doctype html>
 <!-- 更新服务器首页。scripts/release.mjs 按 compat.json 填好双花括号占位后放到发布目录根上；版本、下载、公告读同目录的 index.json。
      配色跟 WebUI（scripts/webui-page.html）一致。特效：背景像素樱花（鼠标推开）、像素 Clawd（Claude 的小家伙，平时坐在图标位置，鼠标动起来就跳出来跟着走，停下一会儿自己回去）、
-     点空白处碎方块粒子、卡片里的游戏聊天框、卡片随鼠标轻微倾斜。系统设置了减少动画时只画静止的样子。 -->
+     点空白处碎方块粒子、卡片里的游戏聊天框、卡片随鼠标轻微倾斜。系统设置了减少动画时只画静止的样子。
+     手机没有鼠标时卡片按陀螺仪倾斜。中文、日文两种语言：中文直接写在页面里，日文在脚本的 I18N 里，右上角按钮切换。 -->
 <html lang="zh-CN">
 <head>
 <meta charset="utf-8">
@@ -84,6 +85,13 @@ footer a{color:inherit;text-decoration:none}footer a:hover{color:var(--primary-s
   box-shadow:0 6px 18px rgba(60,40,80,.18);opacity:0;transition:opacity .2s}
 #bubble::after{content:"";position:absolute;left:50%;bottom:-5px;width:10px;height:10px;margin-left:-5px;background:#fff;transform:rotate(45deg)}
 #bubble.on{opacity:1}
+.lang{position:fixed;top:14px;right:16px;z-index:22;padding:4px 12px;border:1px solid var(--glass-line);border-radius:999px;background:var(--glass);color:var(--muted);
+  backdrop-filter:blur(12px);-webkit-backdrop-filter:blur(12px);font:inherit;font-size:12.5px;cursor:pointer;transition:color .2s}
+.lang:hover{color:var(--primary-strong)}
+.lang:focus-visible{outline:2px solid var(--primary);outline-offset:2px}
+/* 日文用日文字体，不然汉字会按中文字形显示 */
+:lang(ja) body{font-family:Quicksand,Nunito,"Segoe UI Variable Text","Segoe UI","Yu Gothic UI","Meiryo","Hiragino Sans",system-ui,sans-serif}
+:lang(ja) .chat{font-family:Consolas,"Cascadia Mono","Yu Gothic UI","Meiryo",monospace}
 @media (max-width:480px){.hero{padding:30px 16px 24px}h1{font-size:30px}.chat{font-size:12px}}
 @media (prefers-reduced-motion:reduce){*,*::before,*::after{animation-duration:.01ms!important;transition-duration:.01ms!important}}
 </style>
@@ -95,22 +103,80 @@ footer a{color:inherit;text-decoration:none}footer a:hover{color:var(--primary-s
   <div id="notices"></div>
   <div class="hero" id="hero">
     <div class="home" id="home" aria-hidden="true"></div>
-    <h1><span class="w">m</span><span class="w">c</span><span class="w">b</span><span class="w">o</span><span class="w">t</span><span class="tag">测试中</span></h1>
-    <p class="lead">用本机的 AI Agent 在 Minecraft 里控制一个游戏伙伴：跟随、保护、砍树挖矿、种地盖房，边做边聊天。</p>
+    <h1><span class="w">m</span><span class="w">c</span><span class="w">b</span><span class="w">o</span><span class="w">t</span><span class="tag" data-i18n="tag">测试中</span></h1>
+    <p class="lead" data-i18n="lead">用本机的 AI Agent 在 Minecraft 里控制一个游戏伙伴：跟随、保护、砍树挖矿、种地盖房，边做边聊天。</p>
     <div class="chat" id="chat" aria-hidden="true"></div>
 
     <a class="btn" id="dl-btn" href="https://github.com/muxue-mcbot/mcbot/releases"><svg viewBox="0 0 24 24"><path d="M12 4v11m-5-5 5 5 5-5M5 20h14"/></svg><span id="dl-text">下载 mcbot</span></a>
     <p class="meta" id="dl-meta">正在读取版本信息……</p>
-    <p class="meta" id="dl-mirror" hidden>下载慢？<a id="dl-github" href="#">从 GitHub 下载</a></p>
+    <p class="meta" id="dl-mirror" hidden><span data-i18n="slow">下载慢？</span><a id="dl-github" href="#" data-i18n="github">从 GitHub 下载</a></p>
 
-    <p class="req">Windows 10 / 11 64 位 · Minecraft {{minecraft}} + NeoForge {{loaderMin}}+ · Claude Code、Codex 或 DeepSeek Harness</p>
+    <p class="req">Windows 10 / 11 <span data-i18n="bits">64 位</span> · Minecraft {{minecraft}} + NeoForge {{loaderMin}}+ · <span data-i18n="agents">Claude Code、Codex 或 DeepSeek Harness</span></p>
   </div>
-  <footer><a href="https://github.com/muxue-mcbot/mcbot">GitHub</a> · 登录信息、记忆和日志都只留在本机</footer>
-  <p class="credit">Clawd 是 Anthropic 的 Claude 吉祥物；本页像素形象参考开源项目 <a href="https://github.com/xiufengsun/TokenTracker">TokenTracker</a>（MIT 许可）</p>
+  <footer><a href="https://github.com/muxue-mcbot/mcbot">GitHub</a> · <span data-i18n="local">登录信息、记忆和日志都只留在本机</span></footer>
+  <p class="credit"><span data-i18n="credit1">Clawd 是 Anthropic 的 Claude 吉祥物；本页像素形象参考开源项目</span> <a href="https://github.com/xiufengsun/TokenTracker">TokenTracker</a><span data-i18n="credit2">（MIT 许可）</span></p>
 </main>
 <canvas id="front" aria-hidden="true"></canvas>
 <div id="bubble" aria-hidden="true"></div>
+<button class="lang" id="lang" type="button" lang="ja">日本語</button>
 <script>
+// 中文、日文：先看地址里的 ?lang=、再看上次点的切换按钮、最后看浏览器语言。中文写在页面里，日文按 data-i18n 换
+var I18N = {
+  zh: {
+    title: 'mcbot', desc: '用本机的 AI Agent 在 Minecraft 里控制一个游戏伙伴', other: '日本語', otherLang: 'ja',
+    download: '下载 mcbot', downloadV: '下载 mcbot {v}', installer: '安装包', loading: '正在读取版本信息……',
+    failed: '暂时读不到版本信息，按钮会打开 GitHub Releases。',
+    chat: [['Alex', '跟上，去那边看看'], ['mcbot', '来了，跟在后面'], ['Alex', '帮忙砍点橡木'], ['mcbot', '好，先去那片树林'],
+      ['mcbot', '拿到 16 个橡木原木'], ['Alex', '天黑了，有僵尸'], ['mcbot', '我挡着，站我后面'], ['Alex', '盖个小木屋吧'],
+      ['mcbot', '地基打好了，开始砌墙'], ['Alex', '饿了'], ['mcbot', '烤了几块牛排，给']],
+    hello: '嗨～ 我是 mcbot', out: '我跟上啦～', back: '回去待命', poke: ['别戳啦', '嘿嘿', '在呢', '要干活吗？'],
+    dig: ['啪！', '挖到了！', '这块我搬走'], btn: '就是这个～'
+  },
+  ja: {
+    title: 'mcbot', desc: 'PC の AI エージェントが Minecraft の遊び仲間になる', other: '中文', otherLang: 'zh',
+    tag: 'テスト中', lead: 'PC の AI エージェントが Minecraft の遊び仲間に。ついて来る、守る、木を切る、掘る、畑や家をつくる。作業しながらおしゃべりもします。',
+    slow: 'ダウンロードが遅い場合：', github: 'GitHub からダウンロード', bits: '64 ビット', agents: 'Claude Code、Codex または DeepSeek Harness',
+    local: 'ログイン情報・記憶・ログはすべてこの PC の中だけに保存されます',
+    credit1: 'Clawd は Anthropic の Claude のマスコットです。このページのピクセルキャラはオープンソースプロジェクト', credit2: '（MIT ライセンス）を参考にしています',
+    download: 'mcbot をダウンロード', downloadV: 'mcbot {v} をダウンロード', installer: 'インストーラー', loading: 'バージョン情報を読み込み中…',
+    failed: 'バージョン情報を読み込めませんでした。ボタンから GitHub Releases を開きます。',
+    chat: [['Alex', 'ついてきて、あっちを見に行こう'], ['mcbot', '了解、うしろについていくね'], ['Alex', 'オークの木を切ってきて'], ['mcbot', 'OK、あの林から行くね'],
+      ['mcbot', 'オークの原木を 16 個ゲット'], ['Alex', '夜だ、ゾンビがいる'], ['mcbot', '前に立つから、うしろにいて'], ['Alex', '小さな木の家を建てよう'],
+      ['mcbot', '土台ができた、壁を積んでいくね'], ['Alex', 'おなかすいた'], ['mcbot', 'ステーキ焼いたよ、どうぞ']],
+    hello: 'やっほー、mcbot だよ', out: 'ついていくね～', back: '元の場所で待ってるね', poke: ['つつかないで～', 'えへへ', 'いるよ', 'お仕事？'],
+    dig: ['パキッ！', '掘れた！', 'これもらうね'], btn: 'これこれ～'
+  }
+};
+var lang = (function () {
+  var q = (location.search.match(/[?&]lang=(zh|ja)\b/) || [])[1];
+  if (q) return q;
+  try { var s = localStorage.getItem('mcbot-lang'); if (s === 'zh' || s === 'ja') return s; } catch (e) {}
+  var l = navigator.languages || [navigator.language || ''];
+  for (var i = 0; i < l.length; i++) { if (/^ja/i.test(l[i])) return 'ja'; if (/^zh/i.test(l[i])) return 'zh'; }
+  return 'zh';
+})();
+var langHooks = [];
+function T(key) { return I18N[lang][key] != null ? I18N[lang][key] : I18N.zh[key]; }
+function setLang(l) {
+  lang = l;
+  document.documentElement.lang = l === 'ja' ? 'ja' : 'zh-CN';
+  document.title = T('title');
+  document.querySelector('meta[name="description"]').content = T('desc');
+  [].forEach.call(document.querySelectorAll('[data-i18n]'), function (e) {
+    var k = e.getAttribute('data-i18n');
+    if (!e.hasAttribute('data-zh')) e.setAttribute('data-zh', e.textContent);
+    e.textContent = l === 'zh' ? e.getAttribute('data-zh') : (I18N[l][k] != null ? I18N[l][k] : e.getAttribute('data-zh'));
+  });
+  var b = document.getElementById('lang'); b.textContent = T('other'); b.lang = T('otherLang');
+  langHooks.forEach(function (f) { f(); });
+}
+setLang(lang);
+document.getElementById('lang').addEventListener('click', function () {
+  var l = T('otherLang');
+  try { localStorage.setItem('mcbot-lang', l); } catch (e) {}
+  setLang(l);
+});
+
 // 下载和公告
 (function () {
   var $ = function (id) { return document.getElementById(id); };
@@ -121,15 +187,22 @@ footer a{color:inherit;text-decoration:none}footer a:hover{color:var(--primary-s
   var isGithub = function (s) { return /^https:\/\/github\.com\/[^/]+\/[^/]+\/releases\/download\/$/.test(s); };
   var safe = function (s) { return typeof s === 'string' && /^[a-z0-9_-]+\/[A-Za-z0-9._+-]+$/.test(s); };
 
+  // 按钮和说明按当前语言写；切换语言时重写一遍
+  var app = null, failed = false;
+  function show() {
+    $('dl-text').textContent = app ? T('downloadV').replace('{v}', app.version) : T('download');
+    $('dl-meta').textContent = app ? app.date + ' · ' + mb(app.size) + ' · ' + T('installer') : T(failed ? 'failed' : 'loading');
+  }
+  show(); langHooks.push(show);
+
   fetch('index.json', { cache: 'no-store' }).then(function (r) {
     if (!r.ok) throw new Error(r.status);
     return r.json();
   }).then(function (index) {
-    var app = index.app;
-    if (!app || !safe(app.file)) throw new Error('bad index');
+    if (!index.app || !safe(index.app.file)) throw new Error('bad index');
+    app = index.app;
     $('dl-btn').href = app.file;
-    $('dl-text').textContent = '下载 mcbot ' + app.version;
-    $('dl-meta').textContent = app.date + ' · ' + mb(app.size) + ' · 安装包';
+    show();
     var gh = (index.sources || []).filter(isGithub)[0];
     if (gh && app.tag) { $('dl-github').href = gh + app.tag + '/' + app.file.split('/').pop(); $('dl-mirror').hidden = false; }
 
@@ -140,7 +213,7 @@ footer a{color:inherit;text-decoration:none}footer a:hover{color:var(--primary-s
       $('notices').appendChild(d);
     });
   }).catch(function () {
-    $('dl-meta').textContent = '暂时读不到版本信息，按钮会打开 GitHub Releases。';
+    failed = true; show();
   });
 })();
 
@@ -161,9 +234,7 @@ footer a{color:inherit;text-decoration:none}footer a:hover{color:var(--primary-s
   var pointer = { x: -999, y: -999, moved: 0, touch: false };
 
   // —— 聊天框：一句一句打出来，最多留 4 行 ——
-  var LINES = [['Alex', '跟上，去那边看看'], ['mcbot', '来了，跟在后面'], ['Alex', '帮忙砍点橡木'], ['mcbot', '好，先去那片树林'],
-    ['mcbot', '拿到 16 个橡木原木'], ['Alex', '天黑了，有僵尸'], ['mcbot', '我挡着，站我后面'], ['Alex', '盖个小木屋吧'],
-    ['mcbot', '地基打好了，开始砌墙'], ['Alex', '饿了'], ['mcbot', '烤了几块牛排，给']];
+  // 台词在上面的 I18N 里；切换语言后从下一句开始换
   var chat = $('chat');
   function line(who) {
     var d = document.createElement('div'), n = document.createElement('span'), t = document.createElement('span');
@@ -172,9 +243,10 @@ footer a{color:inherit;text-decoration:none}footer a:hover{color:var(--primary-s
     while (chat.children.length > 4) chat.removeChild(chat.firstChild);
     return t;
   }
-  if (still) LINES.slice(0, 4).forEach(function (l) { line(l[0]).textContent = l[1]; });
+  function staticChat() { chat.textContent = ''; T('chat').slice(0, 4).forEach(function (l) { line(l[0]).textContent = l[1]; }); }
+  if (still) { staticChat(); langHooks.push(staticChat); }
   else (function next(i) {
-    var l = LINES[i % LINES.length], t = line(l[0]), caret = document.createElement('i'), k = 0;
+    var lines = T('chat'), l = lines[i % lines.length], t = line(l[0]), caret = document.createElement('i'), k = 0;
     caret.className = 'caret'; t.parentNode.appendChild(caret);
     (function type() {
       t.textContent = l[1].slice(0, ++k);
@@ -237,6 +309,7 @@ footer a{color:inherit;text-decoration:none}footer a:hover{color:var(--primary-s
     clearTimeout(bubbleTimer); bubbleTimer = setTimeout(function () { bubble.classList.remove('on'); }, ms || 1800);
   }
   function once(key, text) { if (!bot.said[key]) { bot.said[key] = 1; say(text); } }
+  function pick(a) { return a[Math.random() * a.length | 0]; }
   function hop(v) { if (bot.jz <= 0) bot.vz = v || 260; }
 
   var K = { body: '#de886d', eye: '#000000' };
@@ -281,8 +354,8 @@ footer a{color:inherit;text-decoration:none}footer a:hover{color:var(--primary-s
     if (pointer.moved && !idle) {
       var side = pointer.x > 90 ? -1 : 1;
       tx = pointer.x + side * 54; ty = pointer.y + 22; tu = WALK_U;
-      if (bot.state === 'home') { once('out', '我跟上啦～'); hop(); }
-    } else if (bot.state !== 'home' && Math.hypot(bot.x - h.x, bot.y - h.y) > 30 && idle) once('back', '回去待命');
+      if (bot.state === 'home') { once('out', T('out')); hop(); }
+    } else if (bot.state !== 'home' && Math.hypot(bot.x - h.x, bot.y - h.y) > 30 && idle) once('back', T('back'));
     var k = 1 - Math.exp(-dt * (tu === HOME_U ? 4 : 5));
     var dx = tx - bot.x, dy = ty - bot.y, d = Math.hypot(dx, dy);
     bot.x += dx * k; bot.y += dy * k; bot.u += (tu - bot.u) * k;
@@ -325,17 +398,41 @@ footer a{color:inherit;text-decoration:none}footer a:hover{color:var(--primary-s
   addEventListener('pointerdown', function (e) {
     pointer.x = e.clientX; pointer.y = e.clientY; pointer.touch = e.pointerType !== 'mouse'; pointer.moved = performance.now();
     if (still) return;
-    if (Math.hypot(e.clientX - bot.x, e.clientY - (bot.y - bot.jz)) < bot.u * 7) { hop(320); wave(); say(['别戳啦', '嘿嘿', '在呢', '要干活吗？'][Math.random() * 4 | 0]); return; }
+    if (Math.hypot(e.clientX - bot.x, e.clientY - (bot.y - bot.jz)) < bot.u * 7) { hop(320); wave(); say(pick(T('poke'))); return; }
     if (e.target.closest('a, button, .chat, .notice, .req, .meta, .lead, h1')) return;
     burst(e.clientX, e.clientY); wave(400);
-    if (Math.random() < .3) say(['啪！', '挖到了！', '这块我搬走'][Math.random() * 3 | 0]);
+    if (Math.random() < .3) say(pick(T('dig')));
   });
   document.addEventListener('mouseout', function (e) { if (!e.relatedTarget) { pointer.moved = 0; pointer.x = -999; hero.style.setProperty('--rx', '0deg'); hero.style.setProperty('--ry', '0deg'); hero.style.setProperty('--sheen', '0'); } });
-  btn.addEventListener('mouseenter', function () { if (!still) { say('就是这个～'); bot.raise = true; } });
+  // 手机没有鼠标：按陀螺仪倾斜卡片。以慢慢跟上的平均姿势为基准，所以怎么拿着手机都从平的开始，晃一下才动
+  var tiltBase = null;
+  function gyro(e) {
+    if (e.beta == null || e.gamma == null) return;
+    var a = (screen.orientation && screen.orientation.angle) || window.orientation || 0;
+    var x = e.gamma, y = e.beta;
+    if (a === 90) { x = e.beta; y = -e.gamma; } else if (a === -90 || a === 270) { x = -e.beta; y = e.gamma; } else if (a === 180) { x = -e.gamma; y = -e.beta; }
+    if (!tiltBase) tiltBase = { x: x, y: y };
+    var dx = x - tiltBase.x, dy = ((y - tiltBase.y + 540) % 360) - 180;
+    tiltBase.x += dx * .02; tiltBase.y += dy * .02;
+    var mx = .5 + Math.max(-.5, Math.min(.5, dx / 30)), my = .5 + Math.max(-.5, Math.min(.5, dy / 30));
+    hero.style.setProperty('--ry', ((mx - .5) * 12).toFixed(2) + 'deg');
+    hero.style.setProperty('--rx', ((.5 - my) * 12).toFixed(2) + 'deg');
+    hero.style.setProperty('--mx', (mx * 100).toFixed(1) + '%'); hero.style.setProperty('--my', (my * 100).toFixed(1) + '%');
+    hero.style.setProperty('--sheen', '1');
+  }
+  if (!fine && !still && window.DeviceOrientationEvent) {
+    addEventListener('deviceorientation', gyro);
+    // iOS 要在点击里请求权限才有数据：第一次点页面时还没收到过就问一次
+    if (typeof DeviceOrientationEvent.requestPermission === 'function') addEventListener('pointerup', function ask() {
+      removeEventListener('pointerup', ask);
+      if (!tiltBase) DeviceOrientationEvent.requestPermission().catch(function () {});
+    });
+  }
+  btn.addEventListener('mouseenter', function () { if (!still) { say(T('btn')); bot.raise = true; } });
   btn.addEventListener('mouseleave', function () { bot.raise = false; btn.style.setProperty('--tx', '0px'); btn.style.setProperty('--ty', '0px'); });
 
   if (still) { front.clearRect(0, 0, W, H); drawBot(0); return; }
-  setTimeout(function () { say('嗨～ 我是 mcbot', 2200); hop(); }, 600);
+  setTimeout(function () { say(T('hello'), 2200); hop(); }, 600);
   var last = performance.now();
   (function frame(now) {
     var dt = Math.min(.05, (now - last) / 1000), t = now / 1000; last = now;
