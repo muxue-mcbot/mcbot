@@ -108,6 +108,33 @@ test('roof: hip steps in on all four sides; pitch 0.5 lays slabs half a block a 
   assert.throws(() => roofCells({ shape: 'roof', from: p(0, 0, 0), to: p(2, 0, 2), block: 'oak_planks', pitch: 0.5 }), /楼梯或台阶/);
 });
 
+test('roof trim: eaves and gable edges (hip: eaves and hip lines) in the trim material, the rest unchanged', () => {
+  const gable = cellsAt(roofCells({ shape: 'roof', from: p(0, 5, 0), to: p(6, 5, 4), block: 'spruce_stairs', trim: 'stone_brick_stairs' }));
+  assert.equal(gable(3, 5, 0), 'stone_brick_stairs[facing=south,half=bottom]', 'eave row');
+  assert.equal(gable(0, 6, 1), 'stone_brick_stairs[facing=south,half=bottom]', 'gable edge');
+  assert.equal(gable(3, 6, 1), 'spruce_stairs[facing=south,half=bottom]');
+  assert.equal(gable(6, 7, 2), 'stone_brick_slab[type=bottom]', 'the ridge ends');
+  assert.equal(gable(3, 7, 2), 'spruce_slab[type=bottom]');
+  assert.equal(gable(0, 5, 2), 'spruce_planks', 'gable fill unchanged');
+  const hip = cellsAt(roofCells({ shape: 'roof', from: p(0, 5, 0), to: p(4, 5, 4), block: 'oak_stairs', style: 'hip', trim: 'quartz_stairs' }));
+  assert.equal(hip(1, 6, 1), 'quartz_stairs[facing=south,half=bottom]', 'hip line');
+  assert.equal(hip(2, 6, 1), 'oak_stairs[facing=south,half=bottom]');
+  assert.equal(hip(0, 5, 2), 'quartz_stairs[facing=east,half=bottom]', 'eave');
+  assert.equal(cellsAt(roofCells({ shape: 'roof', from: p(0, 5, 0), to: p(6, 5, 4), block: 'deepslate_tile_slab', pitch: 0.5, trim: 'dark_oak_stairs' }))(0, 5, 1), 'dark_oak_slab[type=top]');
+  assert.throws(() => roofCells({ shape: 'roof', from: p(0, 0, 0), to: p(2, 0, 2), block: 'oak_stairs', trim: 'stone_bricks' }), /trim 要写楼梯/);
+});
+
+test('roof rings: only the outer rings, no ridge and no gable ends (an eave skirt)', () => {
+  const skirt = roofCells({ shape: 'roof', from: p(0, 5, 0), to: p(8, 5, 6), block: 'deepslate_tile_slab', pitch: 0.5, style: 'hip', rings: 2 });
+  const at = cellsAt(skirt);
+  assert.equal(at(4, 5, 0), 'deepslate_tile_slab[type=bottom]');
+  assert.equal(at(4, 5, 1), 'deepslate_tile_slab[type=top]');
+  assert.equal(at(4, 5, 2), undefined, 'nothing inside the second ring');
+  assert.equal(skirt.length, 2 * (9 + 7 - 2) + 2 * (7 + 5 - 2));
+  const gable = roofCells({ shape: 'roof', from: p(0, 5, 0), to: p(6, 5, 4), block: 'oak_stairs', rings: 1 });
+  assert.ok(gable.every(c => c.state.startsWith('oak_stairs') && c.y === 5), 'one row of stairs each side, no gable fill');
+});
+
 test('edit: replace keeps the properties the new block has, within a box only; remove boxes; set cells', () => {
   const blueprint = { version: 1, name: 'a', description: '', size: p(3, 2, 1), createdAt: '', source: '', blocks: [[0, 0, 0, 'oak_stairs[facing=east,half=top]'], [1, 0, 0, 'oak_stairs[facing=west,half=bottom]'], [2, 0, 0, 'oak_planks'], [2, 1, 0, 'oak_planks']] };
   const swapped = editBlueprint(blueprint, { replace: [{ from: 'oak_stairs', to: 'spruce_stairs' }, { from: 'oak_planks', to: 'stone' }], within: { from: p(0, 0, 0), to: p(2, 0, 0) } }, blockProperties);
@@ -127,11 +154,11 @@ test('render: a PNG with two views and floor plans, and the plans as text (door,
   const cells = exampleCells();
   const voxels = voxelsOf(cells);
   assert.deepEqual(detectFloors(voxels).slice(0, 1), [0]);
-  // Rows start at the smallest z, the eaves and the step outside the door at z=-1.
+  // Rows start at the smallest z and columns at the smallest x: the path round the house at x=-1 and z=-1.
   const plan = textPlan(voxels, 0);
-  assert.equal(plan[1][6], 'D', 'the door in the north wall');
-  assert.equal(plan[1][0], '#');
-  assert.equal(plan[8].slice(1, 4), 'WWW', 'the recessed windows, one in from the south wall');
+  assert.equal(plan[1][7], 'D', 'the door in the north wall');
+  assert.equal(plan[1][1], '#');
+  assert.equal(plan[8].slice(2, 5), 'WWW', 'the recessed windows, one in from the south wall');
   const drawn = renderVoxels(voxels);
   assert.deepEqual([...drawn.png.subarray(0, 8)], [137, 80, 78, 71, 13, 10, 26, 10]);
   assert.match(drawn.caption, /第 1 层文字平面图（地板 y=0/);
@@ -149,6 +176,8 @@ test('guide: the general notes and the list of styles, or one style; its example
   assert.equal(at(6, 1, 0), 'spruce_door[facing=south,half=lower,hinge=left]');
   assert.equal(at(4, 2, 0), 'spruce_log[axis=y]');
   assert.equal(at(6, 10, 4), 'dark_oak_slab[type=bottom]', 'the ridge');
+  assert.equal(at(6, 5, -1), 'stone_brick_stairs[facing=south,half=bottom]', 'the trimmed eaves');
+  assert.equal(at(-1, 0, 4), 'stone_bricks', 'the path round the house');
 });
 
 async function setup(t) {
@@ -170,11 +199,11 @@ test('blueprints tool: guide, save with a palette, render a draft or a saved one
   const { call, shelf, mock } = await setup(t);
   assert.match((await call({ action: 'guide' })).content[0].text, /## 流程/);
   const design = guideExample();
-  assert.deepEqual(JSON.parse((await call({ action: 'save', name: '木屋', ...design })).content[0].text).size, { x: 13, y: 11, z: 11 });
+  assert.deepEqual(JSON.parse((await call({ action: 'save', name: '木屋', ...design })).content[0].text).size, { x: 15, y: 11, z: 11 });
   const drawn = await call({ action: 'render', name: '木屋' });
   assert.equal(drawn.content[0].type, 'image');
   assert.equal(drawn.content[0].mimeType, 'image/png');
-  assert.match(drawn.content[1].text, /蓝图「木屋」，13×11×11（x×y×z）/);
+  assert.match(drawn.content[1].text, /蓝图「木屋」，15×11×11（x×y×z）/);
   const text = await call({ action: 'render', shapes: design.shapes, palette: design.palette, image: false });
   assert.equal(text.content.length, 1);
   assert.match(text.content[0].text, /草稿.*\n.*\n.*文字平面图/s);
@@ -184,5 +213,10 @@ test('blueprints tool: guide, save with a palette, render a draft or a saved one
   assert.ok(shelf.load('石木屋').blocks.some(b => b[3] === 'spruce_stairs[facing=south,half=bottom]'));
   assert.equal(shelf.load('石木屋').source, '由「木屋」改出来（build tool）');
   assert.match((await call({ action: 'edit', name: '木屋', set: [{ x: 0, y: 0, z: 0, block: 'stone' }] })).content[0].text, /saveAs/);
+  assert.match(drawn.content[1].text, /只有你看得到/);
+  const old = { action: 'save', name: '小路', blocks: [{ x: 0, y: 0, z: 0, block: 'grass_path' }, { x: 1, y: 0, z: 0, block: 'somemod:machine' }] };
+  assert.match(JSON.parse((await call(old)).content[0].text).unknown, /grass_path$/, 'an old name is named; a mod block is not judged');
+  assert.match((await call({ action: 'render', name: '小路', image: false })).content[0].text, /盖的时候会失败.*grass_path（图里画成品红色）/);
+  assert.equal(JSON.parse((await call({ action: 'save', name: '木屋2', ...design })).content[0].text).unknown, undefined);
   assert.equal(mock.calls.filter(c => c.method === 'act').length, 0, 'designing never moves the body');
 });

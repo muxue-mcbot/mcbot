@@ -20,7 +20,7 @@ export type Facing = 'north' | 'south' | 'east' | 'west';
 export type ShapeKind = 'fill' | 'hollow' | 'walls' | 'line' | 'roof' | 'box' | 'window' | 'door' | 'stairs';
 export interface Shape {
   shape: ShapeKind; from: Position; to: Position; block: string;
-  ridge?: 'x' | 'z'; ridgeBlock?: string; gableBlock?: string; style?: 'gable' | 'hip'; pitch?: 1 | 0.5;
+  ridge?: 'x' | 'z'; ridgeBlock?: string; gableBlock?: string; style?: 'gable' | 'hip'; pitch?: 1 | 0.5; rings?: number;
   frame?: string; floor?: string; ceiling?: string; pillarEvery?: number;
   facing?: Facing; recess?: boolean; sill?: string; trim?: string; hinge?: 'left' | 'right'; support?: string;
 }
@@ -110,7 +110,9 @@ export function roofMaterials(block: string): { slab: string; full: string } {
  * in and up towards the ridge, the triangle ends get gableBlock (default the full block; "none" leaves them open).
  * Hip: all four sides step in, no gable ends. Pitch 1 (default) uses stairs facing the ridge, rising one block a row;
  * pitch 0.5 uses slabs, bottom then top, rising half a block a row. An odd middle row or the last line gets ridgeBlock
- * (default the slab that comes next).
+ * (default the slab that comes next). trim (stairs, or a slab at pitch 0.5) edges the roof in another material: the eave
+ * rows and the two gable edges, or on a hip roof the eaves and the four hip lines. rings lays only that many outer rings
+ * (no ridge, no gable ends): an eave skirt between two floors or under a steeper roof.
  */
 export function roofCells(s: Shape): Cell[] {
   const { x1, x2, y1, z1, z2 } = box(s.from, s.to);
@@ -119,32 +121,47 @@ export function roofCells(s: Shape): Cell[] {
   if (pitch === 1 && !/_stairs$/.test(name)) throw new BodyError('INVALID_ARGUMENT', `roof 的 block 要写楼梯，比如 oak_stairs（现在是 ${s.block}）；用台阶要加 pitch: 0.5`);
   if (pitch === 0.5 && !/_(stairs|slab)$/.test(name)) throw new BodyError('INVALID_ARGUMENT', `pitch 0.5 的 roof 要写楼梯或台阶，比如 oak_slab（现在是 ${s.block}）`);
   const material = roofMaterials(name);
-  // Ring k: how high and in what state its cells go; f is the side they face (towards the ridge).
+  const edge = s.trim?.replace(/\[.*$/, '');
+  if (edge && pitch === 1 && !/_stairs$/.test(edge)) throw new BodyError('INVALID_ARGUMENT', `roof 的 trim 要写楼梯，比如 stone_brick_stairs（现在是 ${s.trim}）`);
+  if (edge && pitch === 0.5 && !/_(stairs|slab)$/.test(edge)) throw new BodyError('INVALID_ARGUMENT', `pitch 0.5 的 roof 的 trim 要写楼梯或台阶（现在是 ${s.trim}）`);
+  // Ring k: how high and in what state its cells go; f is the side they face (towards the ridge); trimmed cells take the trim material.
   const rise = (k: number) => pitch === 1 ? k : Math.floor(k / 2);
-  const surface = (k: number, f: Facing) => pitch === 1 ? `${name}[facing=${f},half=bottom]` : `${material.slab}[type=${k % 2 ? 'top' : 'bottom'}]`;
-  const top = (k: number) => s.ridgeBlock ?? (pitch === 1 ? `${material.slab}[type=bottom]` : `${material.slab}[type=${k % 2 ? 'top' : 'bottom'}]`);
+  const slabOf = (base: string, k: number) => `${roofMaterials(base).slab}[type=${k % 2 ? 'top' : 'bottom'}]`;
+  const surface = (k: number, f: Facing, trimmed = false) => {
+    const stairs = trimmed && edge ? edge : name;
+    return pitch === 1 ? `${stairs}[facing=${f},half=bottom]` : slabOf(stairs, k);
+  };
+  const top = (k: number, trimmed = false) => !s.ridgeBlock && trimmed && edge ? (pitch === 1 ? `${roofMaterials(edge).slab}[type=bottom]` : slabOf(edge, k))
+    : s.ridgeBlock ?? (pitch === 1 ? `${material.slab}[type=bottom]` : slabOf(name, k));
   const out: Cell[] = [];
+  const more = (k: number) => s.rings === undefined || k < s.rings;
   if (s.style === 'hip') {
-    for (let k = 0; ; k++) {
+    for (let k = 0; more(k); k++) {
       const xa = x1 + k, xb = x2 - k, za = z1 + k, zb = z2 - k, y = y1 + rise(k);
       if (xa > xb || za > zb) break;
-      if (xa === xb || za === zb) { for (let x = xa; x <= xb; x++) for (let z = za; z <= zb; z++) out.push({ x, y, z, state: top(k) }); break; }
-      for (let x = xa; x <= xb; x++) { out.push({ x, y, z: za, state: surface(k, 'south') }); out.push({ x, y, z: zb, state: surface(k, 'north') }); }
-      for (let z = za + 1; z < zb; z++) { out.push({ x: xa, y, z, state: surface(k, 'east') }); out.push({ x: xb, y, z, state: surface(k, 'west') }); }
+      if (xa === xb || za === zb) { for (let x = xa; x <= xb; x++) for (let z = za; z <= zb; z++) out.push({ x, y, z, state: top(k, (x === xa || x === xb) && (z === za || z === zb)) }); break; }
+      for (let x = xa; x <= xb; x++) {
+        const trimmed = k === 0 || x === xa || x === xb;
+        out.push({ x, y, z: za, state: surface(k, 'south', trimmed) }); out.push({ x, y, z: zb, state: surface(k, 'north', trimmed) });
+      }
+      for (let z = za + 1; z < zb; z++) { out.push({ x: xa, y, z, state: surface(k, 'east', k === 0) }); out.push({ x: xb, y, z, state: surface(k, 'west', k === 0) }); }
     }
     return out;
   }
-  const gable = s.gableBlock === 'none' ? null : s.gableBlock ?? material.full;
+  const gable = s.gableBlock === 'none' || s.rings !== undefined ? null : s.gableBlock ?? material.full;
   const ridge = s.ridge ?? (x2 - x1 >= z2 - z1 ? 'x' : 'z');
   const at = (a: number, y: number, b: number, state: string): Cell => ridge === 'x' ? { x: a, y, z: b, state } : { x: b, y, z: a, state };
   const [a1, a2, b1, b2] = ridge === 'x' ? [x1, x2, z1, z2] : [z1, z2, x1, x2];
   const [low, high]: Facing[] = ridge === 'x' ? ['south', 'north'] : ['east', 'west'];
   const height = new Map<number, number>();
-  for (let k = 0; ; k++) {
+  for (let k = 0; more(k); k++) {
     const bl = b1 + k, br = b2 - k, y = y1 + rise(k);
     if (bl > br) break;
-    if (bl === br) { for (let a = a1; a <= a2; a++) out.push(at(a, y, bl, top(k))); height.set(bl, y); break; }
-    for (let a = a1; a <= a2; a++) { out.push(at(a, y, bl, surface(k, low))); out.push(at(a, y, br, surface(k, high))); }
+    if (bl === br) { for (let a = a1; a <= a2; a++) out.push(at(a, y, bl, top(k, a === a1 || a === a2))); height.set(bl, y); break; }
+    for (let a = a1; a <= a2; a++) {
+      const trimmed = k === 0 || a === a1 || a === a2;
+      out.push(at(a, y, bl, surface(k, low, trimmed))); out.push(at(a, y, br, surface(k, high, trimmed)));
+    }
     height.set(bl, y); height.set(br, y);
   }
   // The triangle ends: under the roof at both ends, up to the layer below each row's roof cell.

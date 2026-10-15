@@ -472,8 +472,9 @@ export function createMcpServer(rawBody: Body, events: EventJournal, options: { 
         from: point, to: point, block: blockText,
         ridge: z.enum(['x', 'z']).optional(), ridgeBlock: blockText.optional(), gableBlock: blockText.optional().describe('gable ends ("none": open)'),
         style: z.enum(['gable', 'hip']).optional(), pitch: z.union([z.literal(1), z.literal(0.5)]).optional().describe('roof: 1 stairs (default), 0.5 slabs'),
+        rings: z.number().int().positive().optional().describe('roof: only this many outer rings, no ridge or gable ends (an eave skirt)'),
         frame: blockText.optional(), floor: blockText.optional(), ceiling: blockText.optional(), pillarEvery: z.number().int().positive().optional(),
-        facing: facing.optional(), recess: z.boolean().optional(), sill: blockText.optional(), trim: blockText.optional(), hinge: z.enum(['left', 'right']).optional(), support: blockText.optional(),
+        facing: facing.optional(), recess: z.boolean().optional(), sill: blockText.optional(), trim: blockText.optional().describe('window/door: a frame round it; roof: stairs edging the eaves and gable edges (hip: and hip lines)'), hinge: z.enum(['left', 'right']).optional(), support: blockText.optional(),
       })).max(64).optional().describe('Between two corners, inclusive; later ones win'),
       palette: z.record(z.string().regex(/^[a-z][a-z0-9_]{0,19}$/), blockText).optional().describe('Materials by role ({"wall":"oak_planks"}), written "@wall" in any block'),
       blueprint: z.object({ name: z.string().min(1).max(40), origin: point.describe('Minimum corner after turning'), rotation: z.union([z.literal(0), z.literal(90), z.literal(180), z.literal(270)]).optional().describe('Clockwise from above') }).optional(),
@@ -503,7 +504,12 @@ export function createMcpServer(rawBody: Body, events: EventJournal, options: { 
         for (const block of blocks) { const id = parseState(block[3]).name; if (id !== 'air') counts.set(id, (counts.get(id) ?? 0) + 1); }
         return Object.fromEntries([...counts].sort((a, b) => b[1] - a[1]).slice(0, 10));
       };
-      register('blueprints', 'Designing for build. guide: how to design with parts and palette, what to check (topic: a style it lists). list: name, size, block count, description, main materials. save: keep blocks/shapes/palette under name (stored relative to their minimum corner; overwrite replaces). render: a picture of a saved blueprint (name) or of a draft (blocks/shapes/palette): two 45° views, floor plans, and the plans as text; look at it before building and show it to the player (image:false for text only). edit: change a saved one in its own coordinates (replace materials, optionally within a box; remove boxes; set cells), to saveAs or with overwrite.', {
+      // Names the game does not have (an old name like grass_path, a typo); the server refuses them at build time. Mod blocks are not judged.
+      const unknown = (states: string[]) => {
+        const names = [...new Set(states.map(s => parseState(s).name))].filter(n => n !== 'air' && !n.includes(':') && blockProperties(n) === undefined);
+        return names.length ? { unknown: `原版 1.21.1 没有这些方块，盖的时候会失败，换掉：${names.join('、')}` } : {};
+      };
+      register('blueprints', 'Designing for build. guide: how to design with parts and palette, what to check (topic: a style it lists). list: name, size, block count, description, main materials. save: keep blocks/shapes/palette under name (stored relative to their minimum corner; overwrite replaces). render: a picture of a saved blueprint (name) or of a draft (blocks/shapes/palette): two 45° views, floor plans, and the plans as text (image:false for text only); only you see it, the player does not: check it, fix, then tell the player in a few words. edit: change a saved one in its own coordinates (replace materials, optionally within a box; remove boxes; set cells), to saveAs or with overwrite.', {
         action: z.enum(['guide', 'list', 'save', 'render', 'edit']), name: z.string().min(1).max(40).optional(), description: z.string().max(200).optional(),
         blocks: design.blocks, shapes: design.shapes, palette: design.palette, overwrite: z.boolean().optional(), topic: z.string().min(1).max(40).optional(),
         front: facing.optional().describe('render: which side is the front (default south)'), image: z.boolean().optional(),
@@ -522,12 +528,16 @@ export function createMcpServer(rawBody: Body, events: EventJournal, options: { 
           const xs = voxels.map(v => v.x), ys = voxels.map(v => v.y), zs = voxels.map(v => v.z);
           const what = `${name ? `蓝图「${name}」` : '草稿'}，${Math.max(...xs) - Math.min(...xs) + 1}×${Math.max(...ys) - Math.min(...ys) + 1}×${Math.max(...zs) - Math.min(...zs) + 1}（x×y×z），${voxels.length} 格${name ? '，坐标是蓝图里的相对坐标' : ''}`;
           const drawn = renderVoxels(voxels, { front });
-          return image === false ? `${what}\n${drawn.caption}` : new PictureResult(drawn.png, `${what}\n${drawn.caption}`);
+          // Models took the first picture as done and told the player to look at it (10-15 trials).
+          const check = '这张图只有你看得到，玩家看不到。第一版一般都有毛病：按设计参考「看图检查」逐条看，改掉（edit 或重新 save）再画；没毛病了再用几句话跟玩家说外观、大小和要备的料。';
+          const strange = unknown(voxels.map(v => v.name)).unknown;
+          const text = `${what}\n${check}\n${strange ? `${strange}（图里画成品红色）\n` : ''}${drawn.caption}`;
+          return image === false ? text : new PictureResult(drawn.png, text);
         }
         if (!name) throw new BodyError('INVALID_ARGUMENT', `${action} 要给 name`);
         if (action === 'save') {
           const saved = shelf.save(name, description ?? '', cellsOf(args), overwrite === true);
-          return { saved: saved.name, size: saved.size, blocks: saved.blocks.length };
+          return { saved: saved.name, size: saved.size, blocks: saved.blocks.length, ...unknown(saved.blocks.map(b => b[3])) };
         }
         if (!replace?.length && !remove?.length && !set?.length) throw new BodyError('INVALID_ARGUMENT', 'edit 给 replace、remove 或 set，说要改什么');
         if (!saveAs && !overwrite) throw new BodyError('INVALID_ARGUMENT', `改完存到哪：saveAs 存成新蓝图（原来的留着），或者 overwrite: true 直接改「${name}」`);
@@ -540,7 +550,7 @@ export function createMcpServer(rawBody: Body, events: EventJournal, options: { 
         const saved = shelf.save(target, description ?? old.description, edited.cells, overwrite === true, saveAs ? `由「${name}」改出来（${old.source}）` : old.source);
         const shift = ['x', 'y', 'z'].map(k => Math.min(...edited.cells.map(c => c[k as 'x' | 'y' | 'z'])));
         return {
-          saved: saved.name, size: saved.size, blocks: saved.blocks.length, materials: materials(saved.blocks),
+          saved: saved.name, size: saved.size, blocks: saved.blocks.length, materials: materials(saved.blocks), ...unknown(saved.blocks.map(b => b[3])),
           ...(edited.replaced.length ? { replaced: Object.fromEntries(edited.replaced.map(([rule, n]) => [rule, n || '一格都没对上，检查名字和属性'])) } : {}),
           ...(remove?.length ? { removed: edited.removed } : {}), ...(set?.length ? { set: edited.set } : {}),
           ...(shift.some(Boolean) ? { note: `最小角变了，坐标整体挪了 (${shift.map(v => -v).join(', ')})` } : {}),

@@ -144,7 +144,8 @@ function buildFaces(voxels: Voxel[], cutY: number | null): Face[] {
           if (isFull(next) && (cutY === null || next!.y <= cutY)) continue;
         }
         let color = colorIndex < 0 ? UNKNOWN : colors[colorIndex];
-        if (tinted && /leaves|grass|fern|vine|lily_pad|sugar_cane|water/.test(v.name)) { const t = tint(v.name); color = [color[0] * t[0] / 255, color[1] * t[1] / 255, color[2] * t[2] / 255, color[3]]; }
+        // The game colours these by biome; cherry and azalea leaves keep their own texture colour.
+        if (tinted && /leaves|grass|fern|vine|lily_pad|sugar_cane|water/.test(v.name) && !/cherry|azalea/.test(v.name)) { const t = tint(v.name); color = [color[0] * t[0] / 255, color[1] * t[1] / 255, color[2] * t[2] / 255, color[3]]; }
         if (color[3] < 16) continue;
         const [c0, c1, c2] = faceCorners(dir, from, to).map(p => rotate(p, rx, ry, 8));
         const w = (p: V3): V3 => [v.x + p[0] / 16, v.y + p[1] / 16, v.z + p[2] / 16];

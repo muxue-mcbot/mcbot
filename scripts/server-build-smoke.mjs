@@ -179,8 +179,10 @@ try {
   if (houseFile) {
     const house = await readJson(houseFile);
     const o = { x: 2440, y: ground, z: 2380 };
+    // 清场和查垫脚的高度：至少 20 格，高的房子按它的高度多留几格。
+    const top = Math.max(20, house.size.y + 4);
     await fixture(`forceload add ${o.x - 10} ${o.z - 10} ${o.x + house.size.x + 10} ${o.z + house.size.z + 10}`);
-    await fixture(`fill ${o.x - 6} ${ground} ${o.z - 6} ${o.x + house.size.x + 6} ${ground + 20} ${o.z + house.size.z + 6} air`);
+    await fixture(`fill ${o.x - 6} ${ground} ${o.z - 6} ${o.x + house.size.x + 6} ${ground + top} ${o.z + house.size.z + 6} air`);
     await fixture(`fill ${o.x - 6} ${ground - 1} ${o.z - 6} ${o.x + house.size.x + 6} ${ground - 1} ${o.z + house.size.z + 6} grass_block`);
     await command(`kill @e[type=item,x=${o.x - 10},y=${ground - 5},z=${o.z - 10},dx=${house.size.x + 20},dy=40,dz=${house.size.z + 20}]`); // 前几轮掉的东西
     await fixture(`tp Claude ${o.x - 3} ${ground} ${o.z - 3}`);
@@ -195,10 +197,14 @@ try {
       await fixture(`setblock ${c.x} ${c.y} ${c.z} ${state}`);
       if (/_door\[/.test(state) && state.includes('half=lower')) await fixture(`setblock ${c.x} ${c.y + 1} ${c.z} ${state.replace('half=lower', 'half=upper')}`);
     }
-    const slices = [[0, 0], [1, 3], [4, 5], [6, 9], [10, 13]].filter(([, high]) => high >= from).map(([low, high]) => [Math.max(low, from), high]);
+    // 第 10 层往上每 4 层一段，盖到房子最高那层。
+    const layers = [[0, 0], [1, 3], [4, 5], [6, 9]];
+    for (let low = 10; low < house.size.y; low += 4) layers.push([low, low + 3]);
+    const slices = layers.filter(([, high]) => high >= from).map(([low, high]) => [Math.max(low, from), high]);
     const started = Date.now(); const houseReport = { file: path.basename(houseFile), cells: cells.filter(c => c.y - o.y >= from).length, from, slices: [] };
     for (const [low, high] of slices) {
       const blocks = cells.filter(c => c.y - o.y >= low && c.y - o.y <= high);
+      if (!blocks.length) continue;
       await fixture('clear Claude');
       // 连着盖很久会饿：每段开始前补满饱食和血（饿掉血会让 build 按受伤停下）。
       await fixture('effect give Claude minecraft:saturation 1 20 true'); await fixture('effect give Claude minecraft:instant_health 1 5 true');
@@ -237,7 +243,7 @@ try {
     }
     const wrong = Object.values(wrongByBlock).reduce((a, b) => a + b, 0);
     // 地面以上还立着的泥土＝没拆掉的垫脚（蓝图里的泥土都在第 0 层）；fill 换成自己会回报格数，世界不变。
-    const dirt = await command(`fill ${o.x - 6} ${ground + 1} ${o.z - 6} ${o.x + house.size.x + 6} ${ground + 19} ${o.z + house.size.z + 6} minecraft:dirt replace minecraft:dirt`);
+    const dirt = await command(`fill ${o.x - 6} ${ground + 1} ${o.z - 6} ${o.x + house.size.x + 6} ${ground + top - 1} ${o.z + house.size.z + 6} minecraft:dirt replace minecraft:dirt`);
     const dirtLeft = Number(dirt.match(/(\d+)/)?.[1] ?? 0);
     Object.assign(houseReport, { minutes: Math.round((Date.now() - started) / 6000) / 10, right: houseReport.cells - wrong, wrong, wrongByBlock, dirtLeft });
     report.house = houseReport; await save();
