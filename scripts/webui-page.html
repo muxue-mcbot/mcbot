@@ -476,9 +476,28 @@ textarea:focus{border-color:var(--primary);background:var(--glass-strong);box-sh
 <div class="dlg-wrap" id="n-dlg" hidden><div class="dlg glass" role="dialog" aria-modal="true" aria-labelledby="n-dlg-title">
 <h3 id="n-dlg-title"></h3><div class="notes" id="n-dlg-meta"></div><div class="msg text" id="n-dlg-text"></div>
 <div class="actions"><button type="button" class="primary" id="n-ok">知道了</button></div></div></div>
+<div class="dlg-wrap" id="a-dlg" hidden><div class="dlg glass" role="alertdialog" aria-modal="true" aria-labelledby="a-dlg-title">
+<h3 id="a-dlg-title"></h3><div class="msg text" id="a-dlg-text"></div>
+<div class="actions"><button type="button" class="primary" id="a-ok">确定</button><button type="button" class="ghost" id="a-cancel">取消</button></div></div></div>
 <script>
 const $ = (s, r = document) => r.querySelector(s);
 const el = (tag, cls, text) => { const n = document.createElement(tag); if (cls) n.className = cls; if (text !== undefined) n.textContent = text; return n; };
+// 页面自己的确认框和提示框，代替浏览器的 confirm、alert（桌面窗口里那个是系统样式的框，标题还是「127.0.0.1:端口 的内容」）。
+// 点确定得到 true；取消、Esc、点框外得到 false。同时只开一个，新开的把旧的当取消
+let askDone = null;
+function ask(title, text, { ok = '确定', cancel = '取消', danger = false } = {}) {
+  if (askDone) askDone(false);
+  const t = $('#a-dlg-title'), m = $('#a-dlg-text'), okb = $('#a-ok'), cb = $('#a-cancel');
+  t.textContent = title; m.textContent = text || ''; m.hidden = !text;
+  okb.textContent = ok; okb.className = danger ? 'danger' : 'primary'; cb.textContent = cancel; cb.hidden = !cancel;
+  $('#a-dlg').hidden = false; okb.focus();
+  return new Promise((resolve) => { askDone = (v) => { askDone = null; $('#a-dlg').hidden = true; resolve(v); }; });
+}
+const tell = (title, text) => ask(title, text, { ok: '知道了', cancel: '' });
+$('#a-ok').onclick = () => askDone && askDone(true);
+$('#a-cancel').onclick = () => askDone && askDone(false);
+$('#a-dlg').onclick = (e) => { if (e.target === e.currentTarget && askDone) askDone(false); };
+document.addEventListener('keydown', (e) => { if (e.key === 'Escape' && askDone) askDone(false); });
 const CHEV = '<svg class="i chev" viewBox="0 0 24 24"><path d="M6 9l6 6 6-6"/></svg>';
 const store = { get(k, d) { try { return localStorage.getItem(k) || d; } catch { return d; } }, set(k, v) { try { localStorage.setItem(k, v); } catch {} } };
 const fmt = (t) => new Date(t).toLocaleTimeString('zh-CN', { hour12: false });
@@ -605,7 +624,7 @@ function botCard(b) {
   const h = $('.halt', d), s = $('.stop', d);
   h.title = '停止当前动作和推理，等待玩家在游戏中下达新任务'; s.title = '结束托管，Bot 将下线';
   h.onclick = (e) => { e.stopPropagation(); control('halt', d._b); };
-  s.onclick = (e) => { e.stopPropagation(); if (confirm('停止托管 ' + d._b.nickname + '？Bot 将下线')) control('stop', d._b); };
+  s.onclick = async (e) => { e.stopPropagation(); if (await ask('停止托管 ' + d._b.nickname + '？', 'Bot 将下线。', { ok: '停止托管', danger: true })) control('stop', d._b); };
   d.onclick = () => select(d._b.name);
   return d;
 }
@@ -619,7 +638,7 @@ function updateBot(d, b) {
   $('.halt', d).disabled = !b.running || b.body !== 'server'; $('.stop', d).disabled = !b.running;
 }
 function renderBots() { const box = $('#bots'); if (!bots.length) return emptyIn(box, '暂无托管记录'); keyed(box, bots, (b) => b.name, botCard, updateBot); }
-async function control(a, b) { const r = await api('/api/' + a + '?name=' + encodeURIComponent(b.name), { method: 'POST' }); if (!r.ok) alert(r.error || '失败'); }
+async function control(a, b) { const r = await api('/api/' + a + '?name=' + encodeURIComponent(b.name), { method: 'POST' }); if (!r.ok) tell('操作失败', r.error || '失败'); }
 function select(n) { if (n === sel) return; sel = n; store.set('mcbot.sel', n); offset = -1; items = []; $('#rows').replaceChildren(); renderBots(); poll(); }
 function rowOf(it) {
   const k = it.kind, chat = k === 'event' && (it.type === 'chat' || it.type === 'whisper');
@@ -1026,7 +1045,7 @@ function personaQuery() { const g = curGame(); return { agent: $('#c-agent').val
 async function loadPersona(force) {
   const q = personaQuery(), key = JSON.stringify(q);
   if (!force && key === persona.key && persona.loaded) return;
-  if (personaDirty && !force && !confirm('人设尚未保存，切换后改动将丢失。是否继续？')) return;
+  if (personaDirty && !force && !(await ask('人设尚未保存', '切换后改动将丢失。是否继续？', { ok: '放弃改动并切换', danger: true }))) return;
   persona.key = key;
   const r = await post('/api/persona', q), h = $('#h-persona');
   if (key !== persona.key) return;
@@ -1061,9 +1080,9 @@ async function loadMemory() {
       const row = el('div', 'mem-line'), del = el('button', 'small danger', '删除');
       del.type = 'button';
       del.onclick = async () => {
-        if (!confirm('删除「' + sec.title + '」中的此行？删除前将自动备份')) return;
+        if (!(await ask('删除「' + sec.title + '」中的此行？', text + '\n\n删除前将自动备份。', { ok: '删除', danger: true }))) return;
         const d = await post('/api/memory/delete-line', { ...q, section: sec.id, line: i + 1, text });
-        if (!d.ok) alert(d.error); loadMemory();
+        if (!d.ok) tell('删除失败', d.error); loadMemory();
       };
       row.append(el('span', '', text), del); card.append(row);
     });
@@ -1078,9 +1097,9 @@ async function loadMemory() {
     view.type = del.type = 'button';
     view.onclick = () => { memDay = memDay === key ? '' : key; loadMemory(); };
     del.onclick = async () => {
-      if (!confirm('删除 ' + label + ' 的全部日志（' + day.count + ' 条）？删除前将自动备份')) return;
+      if (!(await ask('删除 ' + label + ' 的全部日志？', '共 ' + day.count + ' 条。删除前将自动备份。', { ok: '删除', danger: true }))) return;
       const d = await post('/api/memory/delete-day', { ...q, world: day.world, date: day.date });
-      if (!d.ok) alert(d.error); if (memDay === key) memDay = ''; loadMemory();
+      if (!d.ok) tell('删除失败', d.error); if (memDay === key) memDay = ''; loadMemory();
     };
     row.append(el('span', '', label + '　' + day.count + ' 条'), view, del); days.append(row);
     if (memDay === key) {
@@ -1238,11 +1257,11 @@ $('#c-launch').onclick = async () => {
 };
 $('#c-stop').onclick = async () => {
   const p = cur && cfg.profiles.find((x) => x.id === cur.id);
-  if (!p || !p.name || !confirm(p.running ? '停止托管 ' + p.name + '？Bot 将下线' : '停止等待世界并停止托管 ' + p.name + '？')) return;
+  if (!p || !p.name || !(await ask(p.running ? '停止托管 ' + p.name + '？' : '停止等待世界并停止托管 ' + p.name + '？', p.running ? 'Bot 将下线。' : '', { ok: '停止托管', danger: true }))) return;
   const r = await api('/api/stop?name=' + encodeURIComponent(p.name), { method: 'POST' }); say(r.ok ? '已发出停止' : r.error || '失败', !r.ok); loadCfg();
 };
 $('#c-del').onclick = async () => {
-  if (!cur || !cur.id || !confirm('删除配置「' + cur.label + '」？正在托管的 Bot 不受影响')) return;
+  if (!cur || !cur.id || !(await ask('删除配置「' + cur.label + '」？', '正在托管的 Bot 不受影响。', { ok: '删除', danger: true }))) return;
   const r = await post('/api/profiles/delete', { id: cur.id }); if (!r.ok) { say(r.error || '删除失败', true); return; } cur = null; loadCfg(true);
 };
 $('#c-guard').onchange = guardGear;
@@ -1371,7 +1390,7 @@ $('#upd-more').onclick = () => { const n = $('#upd-notes'); n.hidden = !n.hidden
 $('#upd-later').onclick = () => { updLater = true; renderUpdate(); };
 $('#side-ver').onclick = () => { setTab('settings'); document.body.classList.remove('nav-open'); };
 $('#upd-go').onclick = async () => {
-  if (!upd || !upd.latest || !confirm('更新到 ' + upd.latest.version + '？将下载安装包（' + mb(upd.latest.size) + '），下载完成后关闭 WebUI 并安装，安装完成后自动重新打开')) return;
+  if (!upd || !upd.latest || !(await ask('更新到 ' + upd.latest.version + '？', '将下载安装包（' + mb(upd.latest.size) + '）。下载完成后 mcbot 会关闭并自动安装，安装完成后重新打开。', { ok: '更新' }))) return;
   $('#upd-go').disabled = true;
   try {
     const r = await post('/api/update/start', {});
