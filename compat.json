@@ -1,7 +1,7 @@
 {
   "schema": 1,
   "note": "支持范围的唯一来源：网站、README 和 WebUI 的模组页都读这份。改了模组里锁的版本就改这里，scripts/check-compat.mjs 会对一遍。",
-  "updated": "2026-10-14",
+  "updated": "2026-10-15",
   "platform": {
     "minecraft": "1.21.1",
     "loader": "neoforge",
@@ -23,7 +23,7 @@
     "id": "mcbot_server_control",
     "name": "MCBOT Server Control",
     "project": "mods/mcbot-server-control",
-    "jar": "mcbot-server-control-0.0.1.jar",
+    "jar": "mcbot-server-control-0.0.2.jar",
     "side": "server",
     "required": true,
     "what": "服务端身体：Bot 作为服务器中的模拟玩家运行，玩家只需使用自己的客户端"
