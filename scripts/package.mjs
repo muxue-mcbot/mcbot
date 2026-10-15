@@ -12,6 +12,7 @@ import { loadCompat, checkCompat } from './check-compat.mjs';
 import { readAppVersion } from './version.mjs';
 // 安装标记：程序目录里有它就是安装版，数据放 %LOCALAPPDATA%\mcbot；文件名以 paths.mjs 为准
 import { INSTALL_MARKER } from './paths.mjs';
+import { writeShellNotices } from './shell-notices.mjs';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 // 程序目录里跑的入口；它们 import 的同目录脚本会自动带上
@@ -23,8 +24,9 @@ const TOP_FILES = ['compat.json', 'LICENSE', 'NOTICE', 'CLAUDE.md'];
 // 程序目录里不该有的用户数据目录：目标目录里有它们就拒绝打包，免得连数据一起删掉
 export const DATA_DIRS = ['runtime', 'memory'];
 export const ISS = path.join(ROOT, 'installer', 'mcbot.iss');
-// 桌面窗口（shell/，Tauri）：cargo 编译出的 mcbot.exe 放在程序目录根上，快捷方式指向它
+// 桌面窗口（shell/，Tauri）：cargo 编译出的 mcbot.exe 放在程序目录根上，快捷方式指向它；编进去的 crate 的许可证写进 THIRD-PARTY-NOTICES.txt（shell-notices.mjs）
 export const SHELL_DIR = path.join(ROOT, 'shell');
+export const SHELL_NOTICES = 'THIRD-PARTY-NOTICES.txt';
 export const SHELL_EXE = path.join(SHELL_DIR, 'target', 'release', 'mcbot.exe');
 
 /** 默认用 runtime/node-dist 里解压好的官方 Node（版本最新的那个）；没有就用当前的 Node。 */
@@ -101,7 +103,7 @@ function readme(compat, version) {
     '连接文件（config/mcbot-server-control/connection.json）中含有控制令牌，仅保存在本机，请勿发送给他人。',
     '支持的模组及确切版本见 compat.json；对于清单以外的模组，Bot 将拒绝操作。',
     '',
-    '本程序附带 Node.js（node 文件夹，MIT 许可，见 node/LICENSE）。本项目以 Apache License 2.0 发布，见 LICENSE、NOTICE。',
+    '本程序附带 Node.js（node 文件夹，MIT 许可，见 node/LICENSE）；桌面窗口 mcbot.exe 使用的开源组件及其许可证见 THIRD-PARTY-NOTICES.txt。本项目以 Apache License 2.0 发布，见 LICENSE、NOTICE。',
     '',
   ].join('\r\n');
 }
@@ -153,6 +155,7 @@ export function buildPackage(opts) {
   fs.mkdirSync(stage, { recursive: true });
 
   copy(SHELL_EXE, path.join(stage, 'mcbot.exe'));
+  writeShellNotices(path.join(stage, SHELL_NOTICES), SHELL_DIR);
   copy(opts.node, path.join(stage, 'node', 'node.exe'));
   copy(nodeLicense, path.join(stage, 'node', 'LICENSE'));
 

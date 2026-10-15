@@ -70,6 +70,15 @@ nav{display:flex;flex-direction:column;gap:6px}
 .glass,.card{background:var(--glass);backdrop-filter:blur(18px) saturate(1.4);-webkit-backdrop-filter:blur(18px) saturate(1.4);border:1px solid var(--glass-line);border-radius:18px;box-shadow:var(--shadow)}
 .grid{display:grid;grid-template-columns:300px 1fr;gap:16px;align-items:start}
 #view-monitor .grid{height:100%;align-items:stretch}
+/* 快速开始：还没有配置和托管记录时代替「监控」的内容 */
+.guide{max-width:760px;margin:8px auto;padding:22px 26px}.guide h2{margin:0 0 4px;font-size:18px}.guide>.hint{margin:0 0 16px;color:var(--muted);font-size:13px}
+.guide ol{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:10px;counter-reset:g}
+.guide li{counter-increment:g;display:flex;align-items:center;gap:14px;padding:12px 14px;border-radius:14px;background:var(--fill)}
+.guide li::before{content:counter(g);flex:none;width:26px;height:26px;border-radius:50%;display:grid;place-items:center;font-size:13px;font-weight:700;background:var(--primary-soft);color:var(--primary-strong)}
+.guide li.ok::before{content:"✓";background:color-mix(in srgb,var(--ok) 18%,transparent);color:var(--ok)}
+.guide li.warn::before{content:"!";background:rgba(227,145,43,.16);color:var(--busy)}
+.guide .gt{flex:1;min-width:0;display:flex;flex-direction:column;gap:2px}.guide .gt b{font-weight:600}.guide .gt span{color:var(--muted);font-size:12.5px}
+.guide li.warn .gt span{color:var(--busy)}.guide li button{flex:none;white-space:nowrap}
 .col{display:flex;flex-direction:column;min-height:0}
 .col-title{font-size:13px;font-weight:600;color:var(--muted);margin:2px 6px 10px;display:flex;align-items:center;gap:8px;min-height:28px}
 .col-title::before{content:"";width:3px;height:12px;border-radius:3px;background:var(--secondary)}
@@ -346,7 +355,9 @@ textarea:focus{border-color:var(--primary);background:var(--glass-strong);box-sh
 <button type="button" class="primary small" id="upd-go">更新</button><button type="button" class="ghost small" id="upd-later">稍后提醒</button></div>
 <div class="prog" id="upd-prog" hidden><i></i></div><ul id="upd-notes" hidden></ul><div class="err" id="upd-err" hidden></div></div>
 
-<main class="view" id="view-monitor"><div class="grid">
+<main class="view" id="view-monitor">
+<section class="guide glass" id="guide" hidden><h2>快速开始</h2><p class="hint">按顺序完成以下几步，Bot 就会进入你的世界。保存第一个配置后，这里将显示托管中的 Bot。</p><ol id="g-steps"></ol></section>
+<div class="grid">
 <div class="col"><div class="col-title">托管中的 Bot</div><section class="list" id="bots"></section></div>
 <section class="feed glass"><div class="bar"><span id="title">请选择左侧的 Bot</span><span style="flex:1"></span>
 <label><input type="checkbox" class="sw" id="f-tool" checked>工具调用</label><label><input type="checkbox" class="sw" id="f-info">驱动器提示</label><label><input type="checkbox" class="sw" id="f-auto" checked>自动滚动</label></div>
@@ -654,6 +665,7 @@ function renderRows() {
 async function poll() {
   try {
     const r = await api('/api/bots'); bots = r.bots || [];
+    if (bots.length && !$('#guide').hidden) loadGuide();
     if (!sel && bots.length) sel = (bots.find((b) => b.running) || bots[0]).name;
     renderBots();
     const b = bots.find((x) => x.name === sel); $('#title').textContent = b ? b.nickname + ' 的记录' : '请选择左侧的 Bot';
@@ -668,6 +680,31 @@ async function poll() {
 }
 for (const id of ['#f-tool', '#f-info']) $(id).onchange = () => { items.forEach((it) => seenRows.add(it)); renderRows(); };
 poll(); setInterval(poll, 1500);
+
+// ---- 快速开始：还没有任何配置、也没有托管记录时，「监控」页按步骤带新用户走一遍；保存了配置或有 Bot 后不再显示 ----
+async function loadGuide() {
+  let p, g;
+  try { [p, g] = await Promise.all([api('/api/profiles'), api('/api/games')]); } catch { return; }
+  const show = !p.profiles.length && !bots.length;
+  $('#guide').hidden = !show; $('#view-monitor .grid').hidden = show;
+  if (!show) return;
+  // 账号目录（~/.claude、~/.codex、~/.dsh）在，大致说明装过并登录过；dsh 也能只用数据目录里的设置，所以没找到只提醒、不拦
+  const found = Object.entries(p.accounts).filter(([, dirs]) => dirs.length).map(([k]) => p.agents[k].label);
+  const gs = g.ok ? g.games : [];
+  const steps = [
+    [found.length ? 'ok' : 'warn', '准备 AI', found.length ? '已检测到 ' + found.join('、') + ' 的登录目录；在「配置」中选择要用的 Agent' : '未检测到 Claude Code、Codex 或 dsh 的登录目录：请先在本机安装其中一个并登录，mcbot 不会代为登录'],
+    [gs.length ? 'ok' : '', '选择游戏', gs.length ? '已添加 ' + gs.length + ' 个游戏，在「连接配置」中选中要用的那个' : '在「连接配置」中添加启动器的游戏实例目录，或服务器目录', '去选择', 'conn'],
+    ['', '安装插件', '在「插件」中安装核心模组和想用的插件（需要联网下载）。修改前请备份存档', '去安装', 'plug'],
+    ['', '打开世界', '启动游戏进入单人世界，按 Esc 选择「对局域网开放」；或者启动服务器'],
+    ['', '启动托管', '在「配置」中点击「保存并启动托管」。Bot 上线后，回到这里查看它的聊天和动作', '去启动', ''],
+  ];
+  $('#g-steps').replaceChildren(...steps.map(([cls, title, text, btn, pane]) => {
+    const li = el('li', cls), t = el('div', 'gt');
+    t.append(el('b', '', title), el('span', '', text)); li.append(t);
+    if (btn) { const b = el('button', 'small', btn); b.type = 'button'; b.onclick = () => { setTab('config'); if (pane) setPane(pane); }; li.append(b); }
+    return li;
+  }));
+}
 
 // ---- 配置页 ----
 let cfg = null, cur = null, cfgTimer = 0, models = null, modelsKey = '', modelsLoading = false;
@@ -1119,7 +1156,7 @@ function updateProfile(d, p) {
   m[0].textContent = cfg.agents[p.agent].label + ' · ' + (p.model || '默认模型') + ' · ' + p.effort;
   m[1].textContent = (p.mode === 'server' ? '服务器' : '局域网') + ' · ' + (p.name || '未命名') + ' · ' + (p.running ? '在线' : ended ? ENDED[ended] : '未启动');
 }
-function renderProfiles() { const box = $('#profiles'); if (!cfg.profiles.length) return emptyIn(box, '暂无配置，请点击右上角「新建」'); keyed(box, cfg.profiles, (p) => p.id, profileCard, updateProfile); }
+function renderProfiles() { const box = $('#profiles'); if (!cfg.profiles.length) return emptyIn(box, '暂无配置：在右侧选择游戏后点击「保存」'); keyed(box, cfg.profiles, (p) => p.id, profileCard, updateProfile); }
 function fill(p) {
   $('#cform').dataset.filled = '1'; $('#c-title').textContent = p.id ? '编辑：' + p.label : '新配置';
   for (const k of TEXTS) $('#c-' + k).value = p[k] || '';
@@ -1247,6 +1284,7 @@ function setTab(t) {
   $('#live').hidden = t !== 'monitor'; document.body.classList.remove('nav-open');
   const v = $('#view-' + t); v.classList.remove('enter'); void v.offsetWidth; v.classList.add('enter');
   if (t === 'settings') loadSettings();
+  if (t === 'monitor') loadGuide();
   if (t === 'config') {
     loadCfg(); loadGames(); let n = 0;
     // 游戏列表会问每个世界运行中没有，刷新慢一点

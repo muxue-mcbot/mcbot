@@ -6,6 +6,7 @@
 // - 只开一个窗口：再打开 mcbot 时把已有的窗口提到前面。
 // - 外部链接（下载地址、模组主页）交给默认浏览器，窗口里只留本机的 WebUI 和加载页。
 // - WebView2 的数据（Cookie、主题选择）放在数据目录的 runtime/webview：数据目录的规则和 scripts/paths.mjs 一样。
+// - 窗口大小、位置、是否最大化在关窗口时记进 runtime/window.json，下次打开时恢复；记下的位置已不在任何屏幕上时用默认位置。
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
 use std::collections::VecDeque;
@@ -17,8 +18,9 @@ use std::sync::{Arc, Mutex};
 use std::thread;
 use std::time::{Duration, Instant};
 
+use serde_json::{json, Value};
 use tauri::webview::NewWindowResponse;
-use tauri::{AppHandle, Manager, RunEvent, Url, WebviewUrl, WebviewWindowBuilder};
+use tauri::{AppHandle, Manager, PhysicalPosition, PhysicalSize, RunEvent, Url, WebviewUrl, WebviewWindow, WebviewWindowBuilder, WindowEvent};
 
 const CREATE_NO_WINDOW: u32 = 0x0800_0000;
 /// 错误页上留 WebUI 输出的最后几行。
@@ -26,9 +28,52 @@ const LOG_LINES: usize = 40;
 /// 关窗口后等 WebUI 自己退出多久，超过就结束它。
 const STOP_WAIT: Duration = Duration::from_secs(3);
 const URL_PREFIX: &str = "http://127.0.0.1:";
+/// 恢复位置时，窗口左上角至少要有这么大一块（物理像素）落在某个屏幕里，才算还能看到、拖得动。
+const VISIBLE_PX: i32 = 100;
 
 struct Webui {
     child: Mutex<Option<Child>>,
+    window_file: PathBuf,
+}
+
+/// 按上次关窗口时记下的大小和位置摆窗口；没有记录、读不了或位置已不在任何屏幕上时保持默认。
+fn restore_window(window: &WebviewWindow, file: &Path) {
+    let Some(saved) = std::fs::read_to_string(file).ok().and_then(|t| serde_json::from_str::<Value>(&t).ok()) else { return };
+    let int = |k: &str| saved.get(k).and_then(Value::as_i64).and_then(|v| i32::try_from(v).ok());
+    let (Some(x), Some(y), Some(w), Some(h)) = (int("x"), int("y"), int("width"), int("height")) else { return };
+    if w <= 0 || h <= 0 {
+        return;
+    }
+    let on_screen = window.available_monitors().unwrap_or_default().iter().any(|m| {
+        let (p, s) = (m.position(), m.size());
+        x + VISIBLE_PX > p.x && x < p.x + s.width as i32 - VISIBLE_PX && y >= p.y && y < p.y + s.height as i32 - VISIBLE_PX
+    });
+    if on_screen {
+        let _ = window.set_size(PhysicalSize::new(w as u32, h as u32));
+        let _ = window.set_position(PhysicalPosition::new(x, y));
+    }
+    if saved.get("maximized").and_then(Value::as_bool) == Some(true) {
+        let _ = window.maximize();
+    }
+}
+
+/// 关窗口时记下大小和位置；最大化、最小化时只改「是否最大化」，保留上次正常大小时的位置。
+fn save_window(window: &tauri::Window, file: &Path) {
+    let mut saved = std::fs::read_to_string(file).ok().and_then(|t| serde_json::from_str::<Value>(&t).ok()).filter(Value::is_object).unwrap_or_else(|| json!({}));
+    let maximized = window.is_maximized().unwrap_or(false);
+    saved["maximized"] = json!(maximized);
+    if !maximized && !window.is_minimized().unwrap_or(false) {
+        if let (Ok(p), Ok(s)) = (window.outer_position(), window.inner_size()) {
+            saved["x"] = json!(p.x);
+            saved["y"] = json!(p.y);
+            saved["width"] = json!(s.width);
+            saved["height"] = json!(s.height);
+        }
+    }
+    if let Some(dir) = file.parent() {
+        let _ = std::fs::create_dir_all(dir);
+    }
+    let _ = std::fs::write(file, saved.to_string());
 }
 
 /// 程序目录：mcbot.exe 所在的目录；开发时可用环境变量 MCBOT_PROGRAM_DIR 指到仓库。
@@ -174,7 +219,9 @@ fn main() {
         let _ = node_command(&program, "--open").spawn();
         return;
     }
-    let webview_data = data_dir(&program).join("runtime").join("webview");
+    let runtime = data_dir(&program).join("runtime");
+    let webview_data = runtime.join("webview");
+    let window_file = runtime.join("window.json");
 
     let app = tauri::Builder::default()
         .plugin(tauri_plugin_single_instance::init(|app, _args, _cwd| {
@@ -184,12 +231,18 @@ fn main() {
                 let _ = window.set_focus();
             }
         }))
-        .manage(Webui { child: Mutex::new(None) })
+        .manage(Webui { child: Mutex::new(None), window_file })
+        .on_window_event(|window, event| {
+            if let WindowEvent::CloseRequested { .. } = event {
+                save_window(window, &window.state::<Webui>().window_file);
+            }
+        })
         .setup(move |app| {
             let window = WebviewWindowBuilder::new(app, "main", WebviewUrl::App("index.html".into()))
                 .title("mcbot")
                 .inner_size(1280.0, 820.0)
                 .min_inner_size(800.0, 560.0)
+                .visible(false)
                 .data_directory(webview_data.clone())
                 .on_navigation(|url| {
                     if is_local(url) {
@@ -203,6 +256,8 @@ fn main() {
                     NewWindowResponse::Deny
                 })
                 .build()?;
+            restore_window(&window, &app.state::<Webui>().window_file);
+            window.show()?;
             let base = window.url()?;
             let handle = app.handle().clone();
             if let Err(e) = start_webui(&handle, &program, base.clone()) {
