@@ -233,7 +233,7 @@ input.sw:focus-visible{outline:2px solid var(--primary);outline-offset:2px}
 .settings h3{margin:4px 0 0;font-size:14px}
 .wait-note{margin:12px 0 0}
 .game-mode-note{margin:6px 0 0}
-.pane-note button{margin-left:auto}
+.pane-note>span{flex:1;min-width:0}.pane-note button{flex:none;white-space:nowrap}
 .games{display:grid;grid-template-columns:repeat(auto-fill,minmax(250px,1fr));gap:10px}
 .game{all:unset;box-sizing:border-box;position:relative;overflow:hidden;display:flex;flex-direction:column;gap:4px;padding:12px 14px;border-radius:14px;background:var(--fill);border:1px solid transparent;cursor:pointer;min-width:0;
   transition:background .2s,border-color .25s,box-shadow .25s,transform .3s var(--spring)}
@@ -876,7 +876,8 @@ function updatePlug(d, p) {
   // 更新说明、要先更新主程序的情况
   const pn = [];
   if (core && p.overall === 'update') pn.push('将更换为 ' + p.version + '（与主程序版本相同）');
-  else if (p.overall === 'update' && p.version) pn.push('新版本 ' + p.version + (p.date ? '（' + p.date + '）' : '') + (p.notes.length ? '：' + p.notes.join('；') : ''));
+  // 只是核心要更新、自己的 jar 已是这个版本时不写「新版本」，看「核心模组：需更新」那一项
+  else if (p.overall === 'update' && p.version && p.parts.find((x) => x.kind === 'jar')?.state !== 'ok') pn.push('新版本 ' + p.version + (p.date ? '（' + p.date + '）' : '') + (p.notes.length ? '：' + p.notes.join('；') : ''));
   if (p.needApp) pn.push('新版本 ' + p.needApp.version + ' 需要主程序 ' + p.needApp.coreMin + ' 或更高版本，请先在「设置」中更新主程序');
   if (p.coreNewer) pn.push('游戏中的核心模组比主程序（' + p.version + '）新，请先在「设置」中更新主程序');
   $('.pn', d).replaceChildren(...pn.map((s) => el('div', '', s)));
