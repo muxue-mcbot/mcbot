@@ -124,7 +124,7 @@ node scripts/publish.mjs --ssh <主机> --dir <站点目录> --github --dry-run 
 - 上传：`publish.mjs` 先传 GitHub（tag 打在当前提交上，提交要先推送；每个 tag 一个 Release，已有的只补缺的文件，`index` Release 每次覆盖 `index.json`），再传服务器（经 ssh 和 scp，对方是 Windows 的 OpenSSH；已有同名同大小的跳过，大小不同就停下；`index.json` 最后传，先传成 `.tmp` 再改名）。服务器的 ssh 别名和目录不写进仓库，跑的时候用参数给。
 - Node 用官方 zip 版：解压到 `runtime/node-dist/node-v<版本>-win-x64`（被 git 忽略），脚本默认用版本最新的那个；安装版 Node 没有 LICENSE，会拒绝。10-10 用的是 24.21.0。
 - 不联网：运行依赖复制 `client-runtime/node_modules` 再 `npm prune --omit=dev`；打包前先跑 `compat.json` 核对。
-- 10-14 演练（0.0.1，安装包 25.5 MB）：在临时目录 `/SILENT` 安装，装完自动开 WebUI；WebUI 开着再装一次，旧 node 被关掉、装完重新打开、旧脚本被删、程序目录里别的目录保留；WebUI 开着时 `/SILENT` 卸载，node 被结束，程序文件、快捷方式、卸载登记都删掉，数据目录保留。还没测：有界面的安装和卸载对话框（删数据的提问）、干净 Windows 上安装、未签名时 SmartScreen 的提示。
+- 10-14 演练（0.0.1，安装包 25.5 MB）：在临时目录 `/SILENT` 安装，装完自动开 WebUI；WebUI 开着再装一次，旧 node 被关掉、装完重新打开、旧脚本被删、程序目录里别的目录保留；WebUI 开着时 `/SILENT` 卸载，node 被结束，程序文件、快捷方式、卸载登记都删掉，数据目录保留。还没测：有界面的安装对话框、干净 Windows 上安装、未签名时 SmartScreen 的提示。10-15 晚用桌面窗口版重测卸载（安装脚本副本换了 AppId、名称、快捷方式、数据目录，不碰已装的 mcbot；装完打开的窗口用 `MCBOT_HOME` 另指数据目录）：窗口开着时静默卸载和有界面的卸载（三个提问、选删除数据）都通过。测试安装目录不要放在很深的路径下：运行端依赖里最深的文件会超过 260 字符，Inno 报 MoveFile 错误代码 3。
 - 10-10 的绿色版演练（zip 解压到带中文和空格的目录、dsh 在单人局域网接管 9 分钟）记在 git 历史里；那时修的 zip 文件名编码问题，安装包不再打 zip，不涉及。
 
 ## 单人模式实测
