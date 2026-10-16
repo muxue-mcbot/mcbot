@@ -3,6 +3,7 @@ package com.mcbot.servercontrol;
 import com.google.gson.JsonArray;
 import com.mcbot.servercontrol.api.AppearanceSource;
 import com.mcbot.servercontrol.api.ContainerAdapter;
+import com.mcbot.servercontrol.api.CropRule;
 import com.mcbot.servercontrol.api.EmoteSource;
 import com.mcbot.servercontrol.api.ItemInteraction;
 import com.mcbot.servercontrol.api.McbotApi;
@@ -42,6 +43,7 @@ final class ModAdapters {
     private static volatile List<EmoteSource> emoteSources=List.of();
     private static volatile List<AppearanceSource> appearances=List.of();
     private static volatile List<SeatAdapter> seats=List.of();
+    private static volatile List<CropRule> cropRules=List.of();
     private static volatile Set<String> itemHandlerMods=Set.of();
     private static volatile List<McbotApi.Hint> hints=List.of();
 
@@ -57,6 +59,7 @@ final class ModAdapters {
         emoteSources=installedUnique(registered.emotes(),EmoteSource::id,EmoteSource::installed,ids,problems,"emote source");
         appearances=installedUnique(registered.appearances(),AppearanceSource::id,AppearanceSource::installed,ids,problems,"appearance source");
         seats=installedUnique(registered.seats(),SeatAdapter::id,SeatAdapter::installed,ids,problems,"seat adapter");
+        cropRules=installedUnique(registered.cropRules(),CropRule::id,CropRule::installed,ids,problems,"crop rule");
         hints=registered.hints();
         itemHandlerMods=GenericItemSlots.enabled(GenericItemSlots.load(configDirectory.resolve(GenericItemSlots.FILE),problems),McbotApi::versionsMatch,problems);
         loaded=new Loaded(combined.containers(),combined.interactions(),List.copyOf(problems),installedSinks(registered.pickupSinks()));
@@ -102,6 +105,34 @@ final class ModAdapters {
             if(installed(adapter::installed)) result.add(adapter);
         }
         return List.copyOf(result);
+    }
+    /**
+     * Namespaces of add-on workstations to leave out of this call: {@code args.skipStations}, which the runtime adds
+     * for plugins the hosting person turned off for the agent (the mods stay installed, so the server would still use them).
+     */
+    static Set<String> skippedNamespaces(com.google.gson.JsonObject args) {
+        Set<String> skip=new HashSet<>();
+        if(args!=null&&args.has("skipStations")&&args.get("skipStations").isJsonArray())
+            for(var e:args.getAsJsonArray("skipStations"))if(e.isJsonPrimitive()&&e.getAsJsonPrimitive().isString())skip.add(e.getAsString());
+        return skip;
+    }
+    /** Whether a workstation belongs to a skipped namespace (built-in vanilla stations never do). */
+    static boolean skipped(WorkstationAdapter adapter,Set<String> skip) {
+        return !skip.isEmpty()&&skip.contains(namespaceOf(safeId(adapter::id)));
+    }
+    /** hello.workstations: ids of the installed add-on workstations, so the runtime can leave out a plugin that is off. */
+    static JsonArray addonWorkstationIds() {
+        JsonArray ids=new JsonArray();
+        for(WorkstationAdapter a:addonWorkstations)if(installed(a::installed)){String id=safeId(a::id);if(id!=null)ids.add(id);}
+        return ids;
+    }
+    /** Installed add-on workstations of one template (multi-input processors such as a cooking pot), in registration order. */
+    static List<WorkstationAdapter> addonWorkstations(Template template) {
+        List<WorkstationAdapter> result=new ArrayList<>();
+        for(WorkstationAdapter adapter:addonWorkstations) {
+            try { if(adapter.template()==template&&adapter.installed()) result.add(adapter); } catch(RuntimeException | LinkageError broken) { /* not a match */ }
+        }
+        return result;
     }
     static List<String> workstationIds() {List<String> ids=new ArrayList<>();for(var a:VanillaWorkstations.ALL)ids.add(a.id());for(var a:addonWorkstations)ids.add(safeId(a::id));return ids;}
     /**
@@ -157,6 +188,24 @@ final class ModAdapters {
             try { if(adapter.seatEntity(entity)) return true; } catch(RuntimeException | LinkageError broken) { /* not a match */ }
         }
         return false;
+    }
+
+    /** A crop rule's verdict on a block: which rule (for ripe) and how to harvest it. */
+    record CropVerdict(CropRule rule,CropRule.Harvest harvest) {}
+    /** The installed crop rule that covers this mod block, or null; vanilla blocks never reach a rule, one that throws does not match. */
+    static CropVerdict cropRule(BlockState state) {
+        if(cropRules.isEmpty()||BuiltInRegistries.BLOCK.getKey(state.getBlock()).getNamespace().equals("minecraft")) return null;
+        return cropRule(cropRules,state);
+    }
+    static CropVerdict cropRule(List<CropRule> rules,BlockState state) {
+        for(CropRule rule:rules) {
+            try { CropRule.Harvest harvest=rule.harvest(state);if(harvest!=null) return new CropVerdict(rule,harvest); } catch(RuntimeException | LinkageError broken) { /* not a match */ }
+        }
+        return null;
+    }
+    /** Whether a PICK crop is ripe; a rule that throws says no. */
+    static boolean cropRipe(CropRule rule,BlockState state) {
+        try { return rule.ripe(state); } catch(RuntimeException | LinkageError broken) { return false; }
     }
 
     static List<PickupSink> installedSinks(List<PickupSink> sinks) {
@@ -224,7 +273,7 @@ final class ModAdapters {
     static Set<String> itemHandlerMods() {return itemHandlerMods;}
     /**
      * Add-on usage notes for hello: only those whose namespace has something installed right now (a container, an
-     * interaction, a workstation, an emote or appearance source, a pickup sink), so a note never describes tools that
+     * interaction, a workstation, an emote or appearance source, a pickup sink, a crop rule), so a note never describes tools that
      * are absent because the adapted mod is missing or the wrong version.
      */
     static JsonArray hintsJson() {
@@ -235,6 +284,7 @@ final class ModAdapters {
         for(EmoteSource e:emoteSources) live.add(namespaceOf(safeId(e::id)));
         for(AppearanceSource a:appearances) live.add(namespaceOf(safeId(a::id)));
         for(SeatAdapter s:seats) live.add(namespaceOf(safeId(s::id)));
+        for(CropRule c:cropRules) live.add(namespaceOf(safeId(c::id)));
         for(PickupSink p:pickupSinks()) live.add(namespaceOf(safeId(p::id)));
         return hintsJson(hints,live);
     }

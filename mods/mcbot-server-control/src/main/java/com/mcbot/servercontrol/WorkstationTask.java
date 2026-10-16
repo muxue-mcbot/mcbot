@@ -36,6 +36,8 @@ final class WorkstationTask implements BodyTask {
     private final BodyPlayer player;
     private final ControlSession session;
     private final boolean crafting;
+    /** Add-on workstations of plugins turned off for the agent (args.skipStations). */
+    private final Set<String> skip;
     private final Deque<Station> stations=new ArrayDeque<>();
     private final JsonArray skipped=new JsonArray();
     private final Map<String,Integer> before;
@@ -60,6 +62,7 @@ final class WorkstationTask implements BodyTask {
 
     private WorkstationTask(ControlSession.Operation operation,BodyPlayer player,ControlSession session) {
         this.operation=operation;this.player=player;this.session=session;crafting=operation.name.equals("craft-item");
+        skip=ModAdapters.skippedNamespaces(operation.args);
         before=counts(player.getInventory());
     }
     static WorkstationTask create(ControlSession.Operation operation,BodyPlayer player,ControlSession session) {
@@ -98,7 +101,7 @@ final class WorkstationTask implements BodyTask {
         // The body's own 2x2 grid first, when a small recipe can be laid out now.
         StationLayout grid=own.layout(player.inventoryMenu);
         if(grid!=null)for(StationRecipe plan:plans)if(plan.fits(grid.gridWidth(),grid.gridHeight())&&feasible(plan,inventory,1)>0){craftIn(player.inventoryMenu,grid,plans,null);return;}
-        for(BlockPos pos:nearby(state->ModAdapters.workstation(state,Template.GRID_CRAFTER)!=null)) {
+        for(BlockPos pos:nearby(state->{var a=ModAdapters.workstation(state,Template.GRID_CRAFTER);return a!=null&&!ModAdapters.skipped(a,skip);})) {
             WorkstationAdapter adapter=ModAdapters.workstation(state(pos),Template.GRID_CRAFTER);
             if(adapter!=null)stations.add(new Station(pos,adapter));
         }
@@ -222,9 +225,9 @@ final class WorkstationTask implements BodyTask {
         if(args.has("furnace")) {
             JsonObject at=object(args,"furnace");BlockPos pos=new BlockPos((int)number(at,"x"),(int)number(at,"y"),(int)number(at,"z"));
             WorkstationAdapter adapter=player.serverLevel().hasChunkAt(pos)?ModAdapters.workstation(state(pos),Template.PROCESSOR):null;
-            if(adapter==null)throw error("NOT_A_FURNACE","No furnace, smoker or blast furnace there");
+            if(adapter==null||ModAdapters.skipped(adapter,skip))throw error("NOT_A_FURNACE","No furnace, smoker or blast furnace there");
             stations.add(new Station(pos,adapter));
-        } else for(BlockPos pos:nearby(state->{var adapter=ModAdapters.workstation(state,Template.PROCESSOR);return adapter!=null&&(collectOnly||recipeFor(adapter,state,input).isPresent());}))
+        } else for(BlockPos pos:nearby(state->{var adapter=ModAdapters.workstation(state,Template.PROCESSOR);return adapter!=null&&!ModAdapters.skipped(adapter,skip)&&(collectOnly||recipeFor(adapter,state,input).isPresent());}))
             stations.add(new Station(pos,ModAdapters.workstation(state(pos),Template.PROCESSOR)));
         if(stations.isEmpty())throw error("NO_FURNACE",collectOnly?"No furnace within 16 blocks":"No furnace, smoker or blast furnace within 16 blocks can cook "+id(input));
         next();
@@ -234,6 +237,8 @@ final class WorkstationTask implements BodyTask {
         StationLayout layout=safely(()->adapter.menu(menu)?adapter.layout(menu):null,null);
         int inputSlot=layout==null?-1:layout.slot(Port.INGREDIENT),fuelSlotIndex=layout==null?-1:layout.slot(Port.FUEL),outputSlot=layout==null?-1:layout.slot(Port.RESULT);
         if(inputSlot<0||outputSlot<0){closeMenu(player);skipped.add(obj("furnace",pos(pos),"reason","menu not recognised"));next();return;}
+        // A machine with several inputs (a cooking pot) is produce-item's; smelt-item only drives one-input machines.
+        if(layout.slots(Port.INGREDIENT).size()!=1){closeMenu(player);skipped.add(obj("furnace",pos(pos),"reason","several inputs: use produce-item"));next();return;}
         Inventory inventory=player.getInventory();
         ItemStack inSlot=menu.getSlot(inputSlot).getItem();
         if(!collectOnly&&!inSlot.isEmpty()&&!inSlot.is(input)) { closeMenu(player);skipped.add(obj("furnace",pos(pos),"reason","busy with "+id(inSlot)));next();return; }

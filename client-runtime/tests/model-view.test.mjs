@@ -39,6 +39,9 @@ test('container projection cannot describe bot diamonds as chest contents and ke
   assert.equal(compact.cursor.id, 'minecraft:dirt');
   const task = summarizeOperation({ ...terminal(), name: 'container-list', result: { items: [{ item: 'minecraft:oak_log', count: 3, variant: 1 }] } });
   assert.equal(task.result.items[0].count, 3);
+  // A cooking receipt names the item dishes are served in; it is not a menu
+  const cooking = summarizeOperation({ ...terminal(), name: 'produce-item', result: { cooking: true, sets: 2, container: 'minecraft:bowl', containersAdded: 2, readyInSeconds: 20 } });
+  assert.deepEqual(cooking.result, { cooking: true, sets: 2, container: 'minecraft:bowl', containersAdded: 2, readyInSeconds: 20 });
 });
 test('model projections preserve actual 16/64/99 maxima, omit unknown/empty maxima and never infer capacity from count', () => {
   const inventory = [16, 64, 99].map((maxStackSize, slot) => ({ slot, id: 'minecraft:stone', count: 3, maxStackSize, components: large }));

@@ -22,7 +22,10 @@ import static com.mcbot.servercontrol.NativeWorkstation.*;
  * server's own brewing rules; bottles go in, one reagent per stage. By default the body starts one stage and leaves
  * (8b: the runtime wakes the agent when it is done); calling again at a stand that holds these bottles goes on with the
  * next stage, and takes the bottles out once they are the wanted potion. wait:true stays beside the stand through every
- * stage instead. Blaze powder is added when the stand's fuel would run out.
+ * stage instead. Blaze powder is added when the stand's fuel would run out. An add-on processor with several inputs
+ * (a cooking pot): the inputs go into its ingredient slots and the recipe's containers into its container slot; once it
+ * is seen working the body leaves (or with wait:true takes the results as they come); calling again with the same item
+ * takes out what is done.
  */
 final class ProduceTask extends StationJob {
     static final int MAX_STAGES=4;
@@ -44,7 +47,7 @@ final class ProduceTask extends StationJob {
     record Stage(Item ingredient,ItemStack result) {}
 
     ProduceTask(ControlSession.Operation operation,BodyPlayer player,ControlSession session){super(operation,player,session);}
-    String noStationCode(){return potion!=null?"NO_BREWING_STAND":"NO_STONECUTTER";}
+    String noStationCode(){return potion!=null?"NO_BREWING_STAND":cookers!=null?"NO_STATION":"NO_STONECUTTER";}
     private static int integer(JsonObject args,String key,int fallback,int min,int max) {
         double value=bounded(args,key,fallback,min,max);
         if(value!=Math.rint(value))throw error("INVALID_ARGUMENT",key+" must be an integer");
@@ -74,7 +77,8 @@ final class ProduceTask extends StationJob {
         }
         count=integer(args,"count",1,1,64);
         List<StationRecipe> recipes=VanillaWorkstations.STONECUTTING.producing(player,wanted);
-        if(recipes.isEmpty())throw error("NO_RECIPE",id(wanted)+" is not made at a stonecutter or brewing stand"+hint(wanted));
+        if(recipes.isEmpty()&&beginCooking())return;
+        if(recipes.isEmpty())throw error("NO_RECIPE",id(wanted)+" is not made at a stonecutter, a brewing stand or an add-on's cooking station"+hint(wanted));
         Inventory inventory=player.getInventory();
         for(StationRecipe r:recipes){int need=(count+r.result().getCount()-1)/r.result().getCount();if(need<=64&&NativeWorkstation.allocate(r,inventory,need)!=null){recipe=r;inputs=need;break;}}
         if(recipe==null) {
@@ -94,6 +98,7 @@ final class ProduceTask extends StationJob {
 
     @Override void opened(AbstractContainerMenu menu,StationLayout layout) {
         if(potion!=null){openedBrewing(menu,layout);return;}
+        if(cookers!=null){openedCooking(menu,layout);return;}
         int in=layout.slot(Port.INGREDIENT),out=layout.slot(Port.RESULT);
         if(!menu.getSlot(in).getItem().isEmpty()||!menu.getSlot(out).getItem().isEmpty()){closeMenu(player);skip("busy");return;}
         Inventory inventory=player.getInventory();
@@ -268,6 +273,7 @@ final class ProduceTask extends StationJob {
         if(put==0){collect("Stopped: no "+id(ingredient)+" left for stage "+(stage+1));return;}
     }
     @Override void waitTick() {
+        if(cookers!=null){cookTick();return;}
         ItemStack expected=stages.get(stage).result();
         boolean done=true;for(int slot:bottleSlots)done&=ItemStack.isSameItemSameComponents(open.getSlot(slot).getItem(),expected);
         boolean brewing=safely(()->station.adapter().working(open),false);
@@ -305,5 +311,161 @@ final class ProduceTask extends StationJob {
         if(!back)result.addProperty("leftInStation",true);
         if(made>=count){succeed("Brewed "+made+" "+ItemDescriptions.key(target()),result);return;}
         fail(made>0?"PARTIAL":"BREW_FAILED",why,result);
+    }
+
+    // ---------- cooking: add-on processors with several inputs (a cooking pot) ----------
+    private List<WorkstationAdapter> cookers;
+    private StationRecipe cookRecipe;
+    private int sets,cookCollected,collectedBefore;
+    private boolean collectOnly,cookStarted;
+    private long loadedAt,waitUntil;
+    private JsonObject cookResult;
+
+    /**
+     * Open a cooking station with an empty hand: a cooking pot serves its waiting meal into a held bowl instead of
+     * opening. Without an empty hotbar slot, any slot that holds none of the recipes' containers.
+     */
+    @Override void beforeOpen() {
+        if(cookers==null)return;
+        Inventory inventory=player.getInventory();
+        Set<Item> containers=new HashSet<>();
+        for(WorkstationAdapter a:cookers)for(StationRecipe r:cookRecipesAt(a,null))if(!r.container().isEmpty())containers.add(r.container().getItem());
+        int pick=-1;
+        for(int i=0;i<9&&pick<0;i++)if(inventory.getItem(i).isEmpty())pick=i;
+        for(int i=0;i<9&&pick<0;i++)if(!containers.contains(inventory.getItem(i).getItem()))pick=i;
+        if(pick>=0&&pick!=inventory.selected)player.connection.handleSetCarriedItem(new net.minecraft.network.protocol.game.ServerboundSetCarriedItemPacket(pick));
+    }
+
+    private List<StationRecipe> cookRecipesAt(WorkstationAdapter adapter,net.minecraft.world.level.block.state.BlockState state) {
+        return safely(()->adapter.recipes(state).producing(player,wanted),List.<StationRecipe>of());
+    }
+    private int crafts(StationRecipe r){return (count+r.result().getCount()-1)/r.result().getCount();}
+    private int plainHeld(ItemStack kind){int n=0;Inventory inv=player.getInventory();for(int i=0;i<36;i++){ItemStack s=inv.getItem(i);if(plain(s)&&ItemStack.isSameItem(s,kind))n+=s.getCount();}return n;}
+    /** Whether the inventory holds the inputs and containers for this recipe, as many times as count needs. */
+    private boolean cookFeasible(StationRecipe r) {
+        int n=crafts(r);
+        return n<=64&&NativeWorkstation.allocate(r,player.getInventory(),n)!=null&&(r.container().isEmpty()||plainHeld(r.container())>=n);
+    }
+    private JsonArray cookMissing(StationRecipe r) {
+        int n=crafts(r);JsonArray missing=missing(r,player.getInventory(),n);
+        if(!r.container().isEmpty()&&plainHeld(r.container())<n)missing.add(obj("options",List.of(id(r.container().getItem())),"need",n,"have",plainHeld(r.container()),"container",true));
+        return missing;
+    }
+    /**
+     * The wanted item comes from an add-on processor with several inputs (a cooking pot): the inputs and containers
+     * must be in the inventory before walking; without them, a station nearby that holds the item or is still making it
+     * is visited to collect. False when no installed add-on processor makes the item.
+     */
+    private boolean beginCooking() {
+        List<WorkstationAdapter> able=new ArrayList<>();
+        Set<String> skip=ModAdapters.skippedNamespaces(operation.args);
+        for(WorkstationAdapter adapter:ModAdapters.addonWorkstations(Template.PROCESSOR))if(!ModAdapters.skipped(adapter,skip)&&!cookRecipesAt(adapter,null).isEmpty())able.add(adapter);
+        if(able.isEmpty())return false;
+        cookers=able;
+        deadline=now()+(long)bounded(operation.args,"timeoutMs",wait?600_000:60_000,1000,600_000);
+        findStations(able,(a,s)->!cookRecipesAt(a,s).isEmpty());
+        List<StationRecipe> recipes=new ArrayList<>();for(WorkstationAdapter a:able)recipes.addAll(cookRecipesAt(a,null));
+        if(recipes.stream().anyMatch(this::cookFeasible))return true;
+        // Nothing to cook with: go and take what a station nearby has made (or is making) of this item.
+        for(Station at:List.copyOf(stations)) {
+            StationProgress progress=safely(()->at.adapter().progress(player.serverLevel(),at.pos(),state(at.pos())),null);
+            if(progress!=null&&(progress.results().stream().anyMatch(s->s.is(wanted))||progress.working()&&making(progress.inputs(),cookRecipesAt(at.adapter(),state(at.pos()))))){stations.remove(at);stations.addFirst(at);collectOnly=true;return true;}
+        }
+        StationRecipe best=recipes.getFirst();
+        for(StationRecipe r:recipes)if(cookMissing(r).size()<cookMissing(best).size())best=r;
+        stations.clear();
+        failureDetail=obj("recipe",best.id().toString(),"missing",cookMissing(best));
+        throw error("MISSING_MATERIALS","Not enough to make "+count+" "+id(wanted)+": "+cookMissing(best));
+    }
+    private int takeAll(AbstractContainerMenu menu,int slot) {
+        ItemStack out=menu.getSlot(slot).getItem();if(out.isEmpty())return 0;
+        Item kind=out.getItem();int had=total(player.getInventory(),kind);
+        quickMove(player,menu,slot);
+        return total(player.getInventory(),kind)-had;
+    }
+    private static boolean anyFilled(AbstractContainerMenu menu,List<Integer> slots){for(int s:slots)if(!menu.getSlot(s).getItem().isEmpty())return true;return false;}
+    private static List<ItemStack> filled(AbstractContainerMenu menu,List<Integer> slots){List<ItemStack> out=new ArrayList<>();for(int s:slots){ItemStack i=menu.getSlot(s).getItem();if(!i.isEmpty())out.add(i);}return out;}
+    /** Whether the inputs in a station (one stack per slot) are one set of one of these recipes: it is making this item. */
+    private static boolean making(List<ItemStack> inputs,List<StationRecipe> recipes){for(StationRecipe r:recipes)if(MaterialAllocator.oneSet(NativeWorkstation.cells(r),inputs))return true;return false;}
+    private int secondsLeft() {
+        int ticks=safely(()->{var p=station.adapter().progress(player.serverLevel(),station.pos(),state(station.pos()));return p==null?-1:p.ticksLeft();},-1);
+        return ticks<0?-1:Math.round(ticks/20f);
+    }
+    private void openedCooking(AbstractContainerMenu menu,StationLayout layout) {
+        List<Integer> ins=layout.slots(Port.INGREDIENT);int out=layout.slot(Port.RESULT),box=layout.slot(Port.CONTAINER),buffer=layout.slot(Port.BUFFER);
+        if(ins.isEmpty()||out<0){closeMenu(player);skip("menu not recognised");return;}
+        WorkstationAdapter adapter=station.adapter();
+        ItemStack done=menu.getSlot(out).getItem();
+        if(!done.isEmpty()&&!done.is(wanted)){closeMenu(player);skip("busy with "+id(done));return;}
+        collectedBefore=takeAll(menu,out);
+        ItemStack waiting=buffer<0?ItemStack.EMPTY:menu.getSlot(buffer).getItem();
+        boolean working=safely(()->adapter.working(menu),false);
+        // cooking (true once left cooking) marks these receipts for the runtime, which follows the station until collected.
+        JsonObject result=obj("item",id(wanted),"station",pos(station.pos()),"type",BuiltInRegistries.BLOCK.getKey(state(station.pos()).getBlock()).toString(),"cooking",false,"collected",collectedBefore);
+        if(anyFilled(menu,ins)||collectOnly) {
+            // Inputs from an earlier load (ours or someone else's) are still in: nothing new goes in. They are this item
+            // only when they make one set of one of its recipes; another dish in the pot is someone else's.
+            boolean cookingMore=making(filled(menu,ins),cookRecipesAt(adapter,state(station.pos())));
+            int left=cookingMore?secondsLeft():-1;if(left>=0)result.addProperty("readyInSeconds",left);
+            if(cookingMore)result.addProperty("leftInStation",true);
+            if(collectedBefore>0){succeed("Collected "+collectedBefore+" "+id(wanted)+(cookingMore?"; still making the rest"+(left>=0?", about "+left+" s":""):""),result);return;}
+            if(working&&cookingMore&&(waiting.isEmpty()||waiting.is(wanted))){fail("STILL_COOKING","Still making it"+(left>=0?", about "+left+" s left":"")+"; come back then",result);return;}
+            if(collectOnly){fail("NOTHING_READY","Nothing of "+id(wanted)+" is ready here",result);return;}
+            closeMenu(player);skip("busy with someone else's ingredients");return;
+        }
+        if(!waiting.isEmpty()&&!waiting.is(wanted)){closeMenu(player);skip("busy: "+id(waiting)+" waits for its container");return;}
+        String why=safely(()->adapter.notReady(menu),null);
+        if(why!=null){fail("STATION_NOT_READY",why,result);return;}
+        StationRecipe plan=null;
+        for(StationRecipe r:cookRecipesAt(adapter,state(station.pos())))if(r.cells().size()<=ins.size()&&(r.container().isEmpty()||box>=0)&&cookFeasible(r)){plan=r;break;}
+        if(plan==null){fail("MISSING_MATERIALS","The inputs are no longer in the inventory",result);return;}
+        ItemStack inBox=box<0?ItemStack.EMPTY:menu.getSlot(box).getItem();
+        if(!plan.container().isEmpty()&&!inBox.isEmpty()&&!ItemStack.isSameItem(inBox,plan.container())){closeMenu(player);skip("its container slot holds "+id(inBox));return;}
+        sets=crafts(plan);
+        Inventory inventory=player.getInventory();
+        var take=NativeWorkstation.allocate(plan,inventory,sets);
+        for(int cell=0;cell<take.size();cell++)for(var t:take.get(cell).entrySet())transfer(player,menu,t.getKey(),ins.get(cell),t.getValue());
+        int containersPut=0;
+        if(!plan.container().isEmpty()) {
+            int need=Math.max(0,sets-inBox.getCount());
+            for(int i=0;i<36&&containersPut<need;i++){ItemStack s=inventory.getItem(i);if(plain(s)&&ItemStack.isSameItem(s,plan.container()))containersPut+=transfer(player,menu,i,box,need-containersPut);}
+        }
+        cookRecipe=plan;cookResult=result;
+        result.addProperty("recipe",plan.id().toString());result.addProperty("sets",sets);
+        if(!plan.container().isEmpty()){result.addProperty("container",id(plan.container().getItem()));result.addProperty("containersAdded",containersPut);}
+        result.addProperty("cookSeconds",plan.ticks()/20.0);
+        open=menu;loadedAt=now();
+        waitUntil=Math.min(deadline,loadedAt+(long)sets*plan.ticks()*50L+10_000);
+    }
+    /** After loading: it must start within 3 s (heat, the station's own recipe check); then leave, or wait and take results. */
+    private void cookTick() {
+        WorkstationAdapter adapter=station.adapter();
+        List<Integer> ins=layout.slots(Port.INGREDIENT);int out=layout.slot(Port.RESULT),box=layout.slot(Port.CONTAINER),buffer=layout.slot(Port.BUFFER);
+        boolean working=safely(()->adapter.working(open),false);
+        if(!cookStarted) {
+            if(!working) {
+                if(now()-loadedAt<=3_000)return;
+                List<Integer> back=new ArrayList<>(ins);if(box>=0)back.add(box);
+                if(!takeBack(open,back))cookResult.addProperty("leftInStation",true);
+                String why=safely(()->adapter.notReady(open),null);
+                fail("RECIPE_REFUSED","The station did not start making "+id(wanted)+(why!=null?": "+why:" with these inputs")+"; took them back",cookResult);return;
+            }
+            cookStarted=true;
+            if(!wait) {
+                int seconds=Math.round(sets*cookRecipe.ticks()/20f);
+                cookResult.addProperty("cooking",true);cookResult.addProperty("readyInSeconds",seconds);
+                succeed("Loaded "+sets+" "+(sets==1?"set":"sets")+" for "+id(wanted)+"; ready in about "+seconds+" s. Come back and call produce-item again with the same item to take them out",cookResult);return;
+            }
+        }
+        cookCollected+=takeAll(open,out);
+        // Done when enough came out, or nothing is left to cook and nothing waits to be served (a meal shown with
+        // containers at hand moves to the result slot by itself).
+        boolean served=buffer<0||open.getSlot(buffer).getItem().isEmpty()||box<0||open.getSlot(box).getItem().isEmpty();
+        boolean finished=cookCollected>=count||!anyFilled(open,ins)&&!working&&open.getSlot(out).getItem().isEmpty()&&served;
+        if(!finished&&now()<waitUntil)return;
+        cookCollected+=takeAll(open,out);
+        cookResult.addProperty("collected",collectedBefore+cookCollected);
+        if(anyFilled(open,ins))cookResult.addProperty("leftInStation",true);
+        succeed(finished?"Made and collected "+cookCollected+" "+id(wanted):"Waited "+(waitUntil>=deadline?"until the time limit":"the expected time")+"; collected "+cookCollected+" so far",cookResult);
     }
 }

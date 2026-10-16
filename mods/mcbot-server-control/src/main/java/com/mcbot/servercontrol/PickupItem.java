@@ -145,7 +145,8 @@ final class PickupItem implements BodyTask {
         },mining==null?0:CompanionMiningGuard.DROP_REACH_MARGIN,mining==null?CompanionPickupGuard.MAX_DISTANCE:CompanionMiningGuard.MAX_DISTANCE):null;
         View view=new View(){
             FlatApproach geometry;
-            final NativeNavigation navigation=new NativeNavigation(body,session,operation);
+            // Grilled food pops out onto a lit stove or beside a skillet over a fire: a pickup may stand next to such heat.
+            final NativeNavigation navigation=new NativeNavigation(body,session,operation).nearHeat();
             public boolean mayDrive(){return session.mayDrive(operation);}
             public void refresh(){NativeNavigation.conditions(body);geometry=new FlatApproach(body);}
             public boolean nativeNavigation(){return true;}

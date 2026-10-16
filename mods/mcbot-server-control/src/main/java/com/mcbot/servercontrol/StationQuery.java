@@ -15,22 +15,24 @@ import static com.mcbot.servercontrol.NativeWorkstation.*;
 
 /**
  * workstation-options: answers without touching anything. Which stations are within 16 blocks; how an item is made
- * (which tool, which station, what is missing); references to exact stacks for modify-item. Enchanting offers and
+ * (which tool, which station, what is missing; an add-on's multi-input station such as a cooking pot too); references
+ * to exact stacks for modify-item. Add-on stations of plugins turned off for the agent (args.skipStations) are left out. Enchanting offers and
  * anvil costs depend on the opened station, so those come from modify-item with preview.
  */
 final class StationQuery {
     private StationQuery() {}
     static JsonObject run(ServerPlayer player,JsonObject args,SubjectRefs refs) {
         JsonObject result=new JsonObject();
-        result.add("stations",stations(player));
-        if(args.has("item"))result.add("ways",ways(player,item(string(args,"item")),args.has("potion")?string(args,"potion"):null,args.has("count")?(int)bounded(args,"count",1,1,64):1));
+        Set<String> skip=ModAdapters.skippedNamespaces(args);
+        result.add("stations",stations(player,skip));
+        if(args.has("item"))result.add("ways",ways(player,item(string(args,"item")),args.has("potion")?string(args,"potion"):null,args.has("count")?(int)bounded(args,"count",1,1,64):1,skip));
         if(args.has("subjects"))result.add("subjects",subjects(player,string(args,"subjects"),refs));
         result.addProperty("levels",player.experienceLevel);
         return result;
     }
-    private static JsonArray stations(ServerPlayer player) {
+    private static JsonArray stations(ServerPlayer player,Set<String> skip) {
         JsonArray list=new JsonArray();
-        for(BlockPos pos:nearby(player,s->station(s)!=null,16)) {
+        for(BlockPos pos:nearby(player,s->{WorkstationAdapter a=station(s);return a!=null&&!ModAdapters.skipped(a,skip);},16)) {
             WorkstationAdapter adapter=station(player.serverLevel().getBlockState(pos));
             list.add(obj("station",adapter.id(),"kind",adapter.template().name().toLowerCase(Locale.ROOT),"at",pos(pos),"distance",Math.round(Vec3.atCenterOf(pos).distanceTo(player.position())*10)/10.0));
         }
@@ -41,7 +43,7 @@ final class StationQuery {
         return null;
     }
     private static JsonArray options(Ingredient ingredient){JsonArray a=new JsonArray();ItemStack[] items=ingredient.getItems();for(int i=0;i<Math.min(6,items.length);i++)a.add(id(items[i]));return a;}
-    private static JsonArray ways(ServerPlayer player,Item wanted,String potion,int count) {
+    private static JsonArray ways(ServerPlayer player,Item wanted,String potion,int count,Set<String> skip) {
         JsonArray ways=new JsonArray();Inventory inventory=player.getInventory();
         if(ProduceTask.potionItem(wanted)&&potion!=null) {
             ways.add(obj("tool","produce-item","station","minecraft:brewing_stand","args",obj("item",id(wanted),"potion",potion,"count",Math.min(count,3)),"note","produce-item plans the brewing stages and says what is missing"));
@@ -61,6 +63,23 @@ final class StationQuery {
                 ways.add(obj("tool","smelt-item","station",entry.getKey(),"recipe",holder.id().toString(),"input",options(recipe.getIngredients().getFirst())));
                 if(seen.size()>6)break;
             }
+        // Add-on stations with several inputs (a cooking pot): every input, the container each result is served into.
+        for(WorkstationAdapter adapter:ModAdapters.addonWorkstations(Template.PROCESSOR)) {
+            if(ModAdapters.skipped(adapter,skip))continue;
+            for(StationRecipe r:StationJob.safely(()->adapter.recipes(null).producing(player,wanted),List.<StationRecipe>of())) {
+                int need=(count+r.result().getCount()-1)/r.result().getCount();
+                JsonArray inputs=new JsonArray();for(Ingredient cell:r.cells())inputs.add(options(cell));
+                JsonObject way=obj("tool","produce-item","station",adapter.id(),"recipe",r.id().toString(),"inputs",inputs,"perSet",r.result().getCount(),"cookSeconds",r.ticks()/20.0);
+                JsonArray m=missing(r,inventory,need);
+                if(!r.container().isEmpty()) {
+                    way.addProperty("container",id(r.container()));
+                    int have=0;for(int i=0;i<36;i++){ItemStack s=inventory.getItem(i);if(plain(s)&&ItemStack.isSameItem(s,r.container()))have+=s.getCount();}
+                    if(have<need)m.add(obj("options",List.of(id(r.container())),"need",need,"have",have,"container",true));
+                }
+                if(m.size()>0)way.add("missing",m);
+                ways.add(way);if(ways.size()>12)return ways;
+            }
+        }
         for(StationRecipe r:VanillaWorkstations.STONECUTTING.producing(player,wanted)) {
             int need=(count+r.result().getCount()-1)/r.result().getCount();
             JsonObject way=obj("tool","produce-item","station","minecraft:stonecutter","recipe",r.id().toString(),"input",options(r.cells().getFirst()),"perInput",r.result().getCount());

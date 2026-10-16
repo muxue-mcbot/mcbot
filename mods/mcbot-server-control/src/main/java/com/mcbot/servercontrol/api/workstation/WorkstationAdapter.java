@@ -46,6 +46,12 @@ public interface WorkstationAdapter {
     /** Burn ticks of a fuel stack for this station; 0 when it is not fuel here. Only for stations with a {@link Port#FUEL}. */
     default int burnTicks(BlockState state, ItemStack fuel) { return 0; }
 
+    /**
+     * Why the opened station would not work now even with everything put in (a cooking pot without heat below), or
+     * null when it would. Checked before anything goes in; read only.
+     */
+    default String notReady(AbstractContainerMenu menu) { return null; }
+
     /** Whether the opened machine is working right now (a lit furnace, a brewing stand mid-brew). */
     default boolean working(AbstractContainerMenu menu) { return false; }
 

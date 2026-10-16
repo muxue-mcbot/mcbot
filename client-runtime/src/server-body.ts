@@ -2,7 +2,7 @@ import { readFile } from 'node:fs/promises';
 import { randomUUID } from 'node:crypto';
 import { performance } from 'node:perf_hooks';
 import { z } from 'zod';
-import { applyPluginPolicy, pluginRefusal, type PluginPolicy } from './plugins.js';
+import { applyPluginPolicy, pluginRefusal, skippedStations, type PluginPolicy } from './plugins.js';
 import { BodyError, COMPANION_MINING_RANGE, COMPANION_PICKUP_RANGE, EMOTE_SECONDS, type Body, type BodyHello, type Position, type Observation, type ActionName, type ActionArguments, type Operation, type NearbyBlocks, type NearbyResources, type ResourceScanOptions, type HomeSpot, type SurvivalState, type ToolAssessment, type ToolAssessmentOptions, type ArmourAssessment, type MachineStatus, type GuardDutyRequest, type GuardDutyState, type PostureRequest, type PostureState, type StopOptions, type InterruptReason, type InterruptWindow, TRAVEL_TIMEOUT_MS, PICKUP_TIMEOUT_MS } from './body.js';
 import { serverDetail } from './claim-failure.js';
 
@@ -52,6 +52,8 @@ const armourSchema = z.object({ instanceId: identifier, sessionId: identifier, w
   verdict: z.enum(['better', 'not-better', 'blocked']), reason: z.string().max(64), wearing: identifier.optional() }).passthrough()).max(36) });
 const toolAssessmentSchema = z.object({ ...stateIdentity, position, blockId: identifier, properties: components, requiresCorrectTool: z.boolean(), recommendedSlot: z.number().int().min(0).max(35).optional(), notes: z.array(z.string()),
   candidates: z.array(z.object({ ...observedStackShape, eligible: z.boolean().nullable(), nativeEligible: z.boolean().optional(), eligibilityBasis: z.string().optional(), baseSpeed: z.number().finite().nonnegative().nullable(), estimatedTicks: z.number().finite().nonnegative().nullable(), remainingDurability: z.number().int().nonnegative().nullable(), reason: z.string().optional(), estimate: z.enum(['native-base', 'estimated', 'unknown']), silkTouch: z.number().int().nonnegative().optional(), fortune: z.number().int().nonnegative().optional(), dropEffectsKnown: z.boolean().optional(), recommendationEligible: z.boolean().optional(), recommendationReason: z.string().optional() }).refine(validComponents)).max(36) });
+/** Workstation tools: the server picks the station itself, so a plugin that is off is passed along as skipStations. */
+const STATION_TOOLS = new Set<ActionName>(['craft-item', 'smelt-item', 'produce-item', 'workstation-options']);
 const helloSchema = z.object({
   protocol: z.literal(2), backend: z.literal('server'), instanceId: identifier, worldId: identifier, username: identifier,
   platform: z.object({ minecraft: z.string(), loader: z.string(), loaderVersion: z.string() }),
@@ -59,6 +61,7 @@ const helloSchema = z.object({
   interactions: z.array(z.string().regex(/^[a-z0-9_.-]+:[a-z0-9_/.-]+$/)).max(256).optional(),
   itemInteractions: z.array(z.string().regex(/^[a-z0-9_.-]+:[a-z0-9_/.-]+$/)).max(256).optional(),
   adapters: z.array(z.string().regex(/^[a-z0-9_.-]+:[a-z0-9_/.-]+$/)).max(256).optional(),
+  workstations: z.array(z.string().regex(/^[a-z0-9_.-]+:[a-z0-9_/.-]+$/)).max(256).optional(),
   itemHandlerMods: z.array(z.string().regex(/^[a-z0-9_.-]{1,64}$/)).max(256).optional(),
   emotes: z.object({ builtin: z.array(z.string().max(64)).max(32), sources: z.array(z.object({ id: z.string().regex(/^[a-z0-9_.-]+:[a-z0-9_/.-]+$/), hint: z.string().max(512) })).max(32) }).optional(),
   appearances: z.array(z.object({ id: z.string().regex(/^[a-z0-9_.-]+:[a-z0-9_/.-]+$/), choices: z.array(z.string().max(128)).max(256) })).max(32).optional(),
@@ -511,6 +514,8 @@ export class ServerBody implements Body {
     this.validateSurvivalArguments(name, args);
     // A building check needs to know where home is; the server decides, this side only says where.
     if (name === 'dig-block' && (args as ActionArguments['dig-block']).buildingCheck && (args as ActionArguments['dig-block']).home === undefined) { const home = this.home?.(); if (home) args = { ...args, home } as typeof args; }
+    // A plugin turned off for the agent keeps its mod installed: the server leaves that add-on's stations out of these calls.
+    if (STATION_TOOLS.has(name)) { const skip = skippedStations(this.options.plugins); if (skip.length) args = { ...args, skipStations: skip } as typeof args; }
     // A window's steps run beside the paused operation, which keeps its place as the one exclusive action.
     const exclusive = name !== 'send-chat' && !interrupting;
     if (exclusive && this.exclusive) throw new BodyError('BUSY', '已有身体动作运行；先查询或停止');

@@ -11,16 +11,29 @@ import net.minecraft.world.item.crafting.Ingredient;
  *
  * <p>For a grid the {@code cells} are the shape row-major in {@code width x height}, {@link Ingredient#EMPTY} for
  * a cell that stays empty; a shapeless recipe is laid out in the smallest box that holds it. For a processor the
- * single cell is its input. {@code ticks} is the processing time (0 for an instant craft), {@code experience} what
+ * cells are its inputs in no particular order (one for a furnace, up to six for a cooking pot: {@link #shapeless}),
+ * each going into an {@link Port#INGREDIENT} slot of its own; {@code container} is what each result is served into
+ * ({@link Port#CONTAINER}, a bowl), {@link ItemStack#EMPTY} when none. {@code ticks} is the processing time (0 for an instant craft), {@code experience} what
  * vanilla would award, both only for the receipt. The station's own result slot stays the authority: the core
  * checks it shows {@code result} before taking anything.</p>
  */
-public record StationRecipe(ResourceLocation id, ItemStack result, int width, int height, List<Ingredient> cells, int ticks, float experience) {
+public record StationRecipe(ResourceLocation id, ItemStack result, int width, int height, List<Ingredient> cells, int ticks, float experience, ItemStack container) {
     public StationRecipe {
         Objects.requireNonNull(id, "id");
         result = Objects.requireNonNull(result, "result").copy();
+        container = Objects.requireNonNull(container, "container").copy();
         cells = List.copyOf(cells);
         if (width < 1 || height < 1 || cells.size() != width * height) throw new IllegalArgumentException("cells must fill " + width + "x" + height);
+    }
+
+    /** A recipe without a container (crafting, smelting). */
+    public StationRecipe(ResourceLocation id, ItemStack result, int width, int height, List<Ingredient> cells, int ticks, float experience) {
+        this(id, result, width, height, cells, ticks, experience, ItemStack.EMPTY);
+    }
+
+    /** A processing recipe with several inputs in any order, each result served into {@code container} (EMPTY: none). */
+    public static StationRecipe shapeless(ResourceLocation id, ItemStack result, List<Ingredient> inputs, ItemStack container, int ticks, float experience) {
+        return new StationRecipe(id, result, inputs.size(), 1, inputs, ticks, experience, container);
     }
 
     /** A single-input processing recipe. */
@@ -29,6 +42,8 @@ public record StationRecipe(ResourceLocation id, ItemStack result, int width, in
     }
 
     public ItemStack result() { return result.copy(); }
+
+    public ItemStack container() { return container.copy(); }
 
     /** Whether the shape fits a grid of this size. */
     public boolean fits(int gridWidth, int gridHeight) { return width <= gridWidth && height <= gridHeight; }

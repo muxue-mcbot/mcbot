@@ -120,11 +120,14 @@ Bot 默认只会用原版的箱子、木桶、漏斗、发射器、潜影盒、�
   10-08 新增两项（都有默认值，旧的适配不用改）：`sneaking()` 返回 true 时，核心按住潜行发这次右键，发完松开；`Expected` 多了 `removesBlock`（九参数构造器），为 true 时允许目标方块变成空气，用于把放着的方块捡到手上。SB 背包适配的 `sophisticatedbackpacks:backpack/take` 就是这样：空手、潜行右键放着的背包，背包连同里面的东西到手上；之后用 `equip-item` 穿上（背包穿在胸甲那一格）。
 - `PickupSink`：有些 Mod 会在原版拾取之前把掉落物直接收进玩家身上的存储，并取消原版拾取（比如背包的拾取升级），这时没有原版的拾取事件。MCBOT 在拾取前后各调用一次 `stored`，读出这类存储里每种物品的数量。只有"被吃掉的那种物品在某一个存储里正好多了吃掉的数量，其他都没变"时，才把这次拾取记下来，回执里用 `storedIn` 写明去处。对不上就记为 `PICKUP_UNKNOWN`，并在拾取收据里留一个缺口。用 `McbotApi.registerPickupSink` 登记。
 
-- `WorkstationAdapter`（`api.workstation` 包，10-07 新增，[设计](workstation_design.md)）：工作站。适配者只说明是哪个方块和界面、哪个格子是什么端口（原料、燃料、成品等）、配方从哪来、用哪种执行模板（`GRID_CRAFTER` 合成网格、`PROCESSOR` 放料→等→取的机器，目前按单原料执行，多原料机器要等具体适配，布局不支持的会拒绝；另有 `OPTION_PICKER`、`IN_PLACE`、`MODIFIER`，目前只有原版切石机、酿造台、附魔台等内置适配在用，附属模组登记这三种还不会被 produce-item／modify-item 选中）；走过去、开界面、点格子、等待和核对都由核心做。登记后 `craft-item`、`smelt-item` 会自动用上。可选的 `progress(level,pos,state)`（10-09 加，8b）不开界面读机器的内容和进度（`StationProgress`：待加工的、成品、燃料、在不在工作、还要多少 tick、燃料够多少 tick），只读，什么都不能改；实现了它，Bot 放料不等时运行端到时间能读出真实进度（还在烧就再等、没燃料就提醒），没实现就只按时间估。原版熔炉、烟熏炉、高炉已实现。原版方块只由内置适配处理，附属模组不能接管。用 `McbotApi.registerWorkstation` 登记。这个包只用原版和 JDK 类型，以后的 Fabric 版也用同一套接口。
+- `WorkstationAdapter`（`api.workstation` 包，10-07 新增，[设计](workstation_design.md)）：工作站。适配者只说明是哪个方块和界面、哪个格子是什么端口（原料、燃料、成品等）、配方从哪来、用哪种执行模板（`GRID_CRAFTER` 合成网格、`PROCESSOR` 放料→等→取的机器：只有一个原料格的走 `smelt-item`，附属模组的多原料机器走 `produce-item`，见下；另有 `OPTION_PICKER`、`IN_PLACE`、`MODIFIER`，目前只有原版切石机、酿造台、附魔台等内置适配在用，附属模组登记这三种还不会被 produce-item／modify-item 选中）；走过去、开界面、点格子、等待和核对都由核心做。登记后 `craft-item`、`smelt-item`（多原料的是 `produce-item`）会自动用上，附属模组的工作站 id 经 `hello.workstations` 下发。可选的 `progress(level,pos,state)`（10-09 加，8b）不开界面读机器的内容和进度（`StationProgress`：待加工的、成品、燃料、在不在工作、还要多少 tick、燃料够多少 tick），只读，什么都不能改；实现了它，Bot 放料不等时运行端到时间能读出真实进度（还在烧就再等、没燃料就提醒），没实现就只按时间估。原版熔炉、烟熏炉、高炉已实现。原版方块只由内置适配处理，附属模组不能接管。用 `McbotApi.registerWorkstation` 登记。这个包只用原版和 JDK 类型，以后的 Fabric 版也用同一套接口。
+
+  多原料的 `PROCESSOR`（10-16 加，8c，只离线检查过）：几个原料格，可再有容器格（`CONTAINER`，比如碗）和只看不拿的 `BUFFER`（做好了等容器的那份）。配方用 `StationRecipe.shapeless(id, 成品, 原料, 容器, tick, 经验)`：原料不分顺序、一格一种，`container` 是每份要放进容器格的东西，不要就 `ItemStack.EMPTY`。可选 `notReady(menu)` 返回现在为什么做不了（比如没热源），核心报 STATION_NOT_READY；`working(menu)` 用来确认放进去后真的开始了，3 秒内没开始就全部拿回、报 RECIPE_REFUSED。核心把背包里的原料按格分好、容器放进容器格，看到开始做就走（`wait:true` 时等着取），回执带 `cooking`，运行端照熔炉记账、到时间读 `progress`。机器里已经有原料时只有正好是这道菜一份配方的才当作在做这道菜（还在做报 STILL_COOKING，做好了就取），别的菜不碰。范例是农夫乐事附属模组的 `CookingPotStation`。
 
 - `EmoteSource`（10-08 新增，第 8j 步）：别的 Mod 提供的身体动画，比如玩家模型 Mod 的动作。AI 用 `emote` 工具，`source` 填来源 id、`name` 填动画名。核心先检查名字只含 `[A-Za-z0-9_.:-]`、最长 64，再问 `accepts`；开始时调 `play`，到 `seconds`（默认 6 秒，1～30）、Bot 开始做别的事（说话和转头除外）或下线时调 `stop`，因为模型动画一般会一直循环。`hint()` 是给 AI 看的一句说明，会写进 `emote` 工具的说明里。用 `McbotApi.registerEmotes` 登记。没有来源时，`emote` 只有内置的原版手势：wave、nod、shake、crouch、jump、spin。
 - `AppearanceSource`（10-08 新增）：Bot 的样子，比如玩家模型 Mod 的模型。`choices` 列出服务器上可选的（只读）；托管的人在 WebUI 里选一个，运行端每次接管后用 `set-appearance` 动作套用一次（`apply`）。AI 不能改，MCP 也不发布这个动作。用 `McbotApi.registerAppearance` 登记。
 - `SeatAdapter`（10-11 新增）：别的 Mod 的椅子、凳子，右键后玩家骑上一个座位实体。AI 用 `sit`／`get-up`。适配者只回答：这个方块是不是座位（`seat`）、座位上是不是已经有人（`occupied`，拿不准就答 true）、这个实体是不是该 Mod 的座位实体（`seatEntity`）。核心负责走过去、保证主手是空手（手里拿着地毯这类东西时，右键会改椅子而不是坐下）、发右键，并且只认观察到的结果：Bot 真的骑着一个 `seatEntity` 认定的实体才算坐下。原版楼梯、台阶不是座位，没有适配器就是 `NO_SEAT`。范例见森罗厨房附属模组的 `SeatAccess`（按类名认方块和实体，不用反射）。
+- `CropRule`（10-16 新增，8c）：别的 Mod 的作物怎么收。`tend-crops` 通用的做法是按 `CropBlock`／`#minecraft:crops` 和 age 到顶算熟、挖掉再补种；有的作物得右键摘（比如农夫乐事的番茄藤，挖了藤就没了）。适配者对方块状态回答 `harvest`：`PICK`（右键摘，不挖、不补种，`ripe` 说熟没熟）、`GROWING`（还在长，不碰），或 null（不归它管，照通用规则）。原版方块不问规则，规则抛异常当作不归它管。用 `McbotApi.registerCropRule` 登记。它只防止通用规则毁掉作物，所以不跟「给 AI 用」开关走。
 
 在附属模组的构造函数里登记：
 
@@ -145,6 +148,7 @@ public final class McbotExampleCook {
 - [mcbot-kaleidoscope-cookery](../mods/mcbot-kaleidoscope-cookery/README.md)：独立的附属模组。用森罗厨房的炒锅做菜，包括放油、加料、翻炒、出锅四个交互。
 - [mcbot-sophisticated-backpacks](../mods/mcbot-sophisticated-backpacks/README.md)：独立的附属模组。打开手里的背包（对空使用）、把放在地上的背包当容器（物品处理器型存储）、拾取升级的记账（`PickupSink`）。
 - [mcbot-yes-steve-model](../mods/mcbot-yes-steve-model/README.md)：独立的附属模组。YSM 的模型（`AppearanceSource`）和动画（`EmoteSource`），只执行 YSM 自己的服务端指令。
+- [mcbot-farmers-delight](../mods/mcbot-farmers-delight/README.md)：独立的附属模组（10-16，只离线检查过）。砧板、宴席、派的右键交互（按当时状态给预期范围），番茄藤的 `CropRule`，厨锅是多原料 `PROCESSOR`。
 
 ### 插件说明（registerHint）
 
@@ -156,24 +160,24 @@ McbotApi.registerHint("examplecook:hint", "Wok: add oil first, then ingredients,
 
 - id 规则和其他登记一样（`命名空间:路径`，和容器、交互等共用一个 id 集合，不能重复），**同一命名空间只能登记一条**；服务器启动后冻结，再登记抛 `IllegalStateException`。命名空间要用被适配模组的 mod id（运行端靠它对应插件，`check-compat` 会查）。
 - 文本：控制字符和格式字符换成空格、合并连续空格、去掉首尾空白后，不能为空，最长 `McbotApi.HINT_MAX`（600）字符，超了直接抛 `IllegalArgumentException`（加载模组时就发现）。
-- 服务端只在这个命名空间下有已安装的登记项（容器、交互、工作站、表情或外观来源、拾取记账）时才下发；被适配模组没装或版本不对时不发。
-- 运行端把说明当不可信文本：只收命名空间属于 `compat.json` 官方插件、且「给 AI 用」开着的；归到该插件影响到的第一个工具（`use-item`、`interact-block`、`container-menu`、`emote`）。托管时（有玩法说明）这个工具的描述里只写一行插件名，完整说明在本会话第一次调这个工具时附在结果后面（和玩法说明同一套，压缩后再给一次），装的模组再多，每轮常驻的也只有插件名（2026-10-12）；不托管时照旧整段接在工具描述末尾。前缀写明来自附属模组、只解释这个工具。它不能新增工具、参数或权限。插件不带这四个工具中的任何一个时说明不会出现。
-- 只写模组里已经实现、有测试证据的用法。现有 4 个附属模组的说明写在各自的 `Mcbot*` 主类（`HINT` 常量），离线测试检查长度和控制字符。config 类插件（通用物品槽）这一轮没有说明。
+- 服务端只在这个命名空间下有已安装的登记项（容器、交互、工作站、作物规则、表情或外观来源、拾取记账）时才下发；被适配模组没装或版本不对时不发。
+- 运行端把说明当不可信文本：只收命名空间属于 `compat.json` 官方插件、且「给 AI 用」开着的；归到该插件影响到的第一个工具（`use-item`、`interact-block`、`container-menu`、`emote`、`produce-item`）。托管时（有玩法说明）这个工具的描述里只写一行插件名，完整说明在本会话第一次调这个工具时附在结果后面（和玩法说明同一套，压缩后再给一次），装的模组再多，每轮常驻的也只有插件名（2026-10-12）；不托管时照旧整段接在工具描述末尾。前缀写明来自附属模组、只解释这个工具。它不能新增工具、参数或权限。插件不带这五个工具中的任何一个时说明不会出现。
+- 只写模组里已经实现、有测试证据的用法。现有 5 个附属模组的说明写在各自的 `Mcbot*` 主类（`HINT` 常量），离线测试检查长度和控制字符。config 类插件（通用物品槽）这一轮没有说明。
 
 ## 「给 AI 用」开关
 
 2026-10-10 加。插件可以装在游戏里给玩家自己用、但不让 AI 用：WebUI「插件」页每个已安装的插件有一个「给 AI 使用」开关，默认开启，按游戏目录存在 WebUI 自己的 `runtime/webui-plugins.json`（不写进游戏目录），**下次启动托管时生效**。关掉的插件 id 经 `start-server-play.mjs --disabled-plugins` → `mcp.json` 里运行端的参数（驱动器生成托管配置时原样保留）→ 运行端。
 
-效果（细节见[协议](server_body_protocol.md)）：运行端注册工具前统一过滤 hello，AI 看不到这个插件带来的任何工具、参数和说明（addon 类按 `requires` 的 mod id 匹配命名空间：容器适配、交互、表情来源、插件说明；config 类去掉 `itemHandlerMods` 里的 mod）；AI 硬调时运行端返回 UNSUPPORTED，不发给服务端。服务端模组和游戏不变，玩家照常使用。关掉 YSM 只影响 AI 能不能播放 YSM 动画，外观仍由托管的人在「角色」页选。
+效果（细节见[协议](server_body_protocol.md)）：运行端注册工具前统一过滤 hello，AI 看不到这个插件带来的任何工具、参数和说明（addon 类按 `requires` 的 mod id 匹配命名空间：容器适配、交互、工作站、表情来源、插件说明；工作站是服务端自己挑的，所以运行端还在 `craft-item`、`smelt-item`、`produce-item`、`workstation-options` 的参数里带 `skipStations`，服务端不选这些命名空间的工作站；作物规则不关，见上面 `CropRule`；config 类去掉 `itemHandlerMods` 里的 mod）；AI 硬调时运行端返回 UNSUPPORTED，不发给服务端。服务端模组和游戏不变，玩家照常使用。关掉 YSM 只影响 AI 能不能播放 YSM 动画，外观仍由托管的人在「角色」页选。
 
 这套对应关系依赖「附属模组登记的 id 的命名空间等于 compat.json 里它 `requires` 的 mod id」：`node scripts/check-compat.mjs` 会从源码里取出每个附属模组登记的 id（`id()` 返回的字面量或常量、带 `String id` 参数的 record 构造时的字面量、`registerHint` 的第一个参数），命名空间不在 requires 里、或写法认不出来都报错。
 
 ## 测试
 
 - 离线：`ModAdaptersTest`（登记、合并、出错时的处理、JSON 格式、`registerHint` 的校验和 hello 的 `hints`）、运行端 `client-runtime/tests/plugins.test.mjs`（开关过滤、硬调拒绝、说明的过滤和位置）、`ItemInteractionsTest`、`GenericItemSlotsTest`（通用物品槽适配：配置、分派、方向面、放入取出、出错）。
-- 铁炉附属模组的离线测试 `IronFurnaceAdapterTest` 在 `mods/mcbot-iron-furnaces`，由它自己的 `gradlew build` 运行。
+- 铁炉附属模组的离线测试 `IronFurnaceAdapterTest` 在 `mods/mcbot-iron-furnaces`，由它自己的 `gradlew build` 运行；农夫乐事的 `FarmersDelightRulesTest` 在 `mods/mcbot-farmers-delight`，也一样。
 - 隔离服：`scripts/server-adapter-smoke.mjs`。测试服要临时装上 Iron Furnaces 4.3.2 和 `mcbot-iron-furnaces` 附属模组，并在 `interactions/` 里放一份正确的重生锚声明和一份故意写错的声明。
-- 示例附属模组：`scripts/server-cooking-smoke.mjs`（森罗厨房）、`scripts/server-backpack-smoke.mjs`（SB，开服前先运行 `scripts/server-backpack-fixture.mjs`）、`scripts/server-emote-smoke.mjs`（YSM，也测内置手势和场景提示）。
+- 示例附属模组：`scripts/server-farmers-delight-smoke.mjs`（农夫乐事，10-17 隔离服 62 项通过，见它的 README）、`scripts/server-cooking-smoke.mjs`（森罗厨房）、`scripts/server-backpack-smoke.mjs`（SB，开服前先运行 `scripts/server-backpack-fixture.mjs`）、`scripts/server-emote-smoke.mjs`（YSM，也测内置手势和场景提示）。
 
 ## 和其他 Mod 一起用时要注意
 

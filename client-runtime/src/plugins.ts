@@ -7,8 +7,9 @@ import type { Guide } from './guides.js';
  * any tool is registered, plus the hard-call check for the same plugins. The game itself is not changed: players keep
  * using the mods, only the agent loses them.
  *
- * - addon plugin off: drop every adapter, interaction and emote source whose namespace is one of its requires modIds
- *   (every add-on registers under the adapted mod's namespace; scripts/check-compat.mjs keeps that true).
+ * - addon plugin off: drop every adapter, interaction, workstation and emote source whose namespace is one of its
+ *   requires modIds (every add-on registers under the adapted mod's namespace; scripts/check-compat.mjs keeps that
+ *   true); workstation tools also pass those namespaces as skipStations, since the server picks the station itself.
  * - config plugin off: drop its config.mods keys from itemHandlerMods (machine-items).
  * - hints (hello.hints, text from third-party jars): kept only for official addon plugins that are on, plain text,
  *   at most HINT_MAX characters; they only extend descriptions of tools that already exist.
@@ -78,7 +79,7 @@ export function hintText(text: string): string {
 }
 
 /** The one place hello is filtered; the result is what tools are registered from. Without a policy hints are dropped. */
-type HelloLists = Pick<BodyHello, 'capabilities' | 'adapters' | 'interactions' | 'itemInteractions' | 'emotes' | 'itemHandlerMods'> & { hints?: unknown };
+type HelloLists = Pick<BodyHello, 'capabilities' | 'adapters' | 'interactions' | 'itemInteractions' | 'emotes' | 'itemHandlerMods' | 'workstations'> & { hints?: unknown };
 export function applyPluginPolicy<T extends HelloLists>(input: T, policy?: PluginPolicy): Omit<T, 'hints'> & { hints?: PluginHint[] } {
   const hello: HelloLists = input;
   const raw = Array.isArray(hello.hints) ? hello.hints as unknown[] : [];
@@ -88,6 +89,7 @@ export function applyPluginPolicy<T extends HelloLists>(input: T, policy?: Plugi
   const keep = (id: string) => !namespaces.has(namespace(id));
   const out: HelloLists & { hints?: PluginHint[] } = { ...rest };
   if (hello.adapters) out.adapters = hello.adapters.filter(keep);
+  if (hello.workstations) out.workstations = hello.workstations.filter(keep);
   if (hello.interactions) out.interactions = hello.interactions.filter(keep);
   if (hello.itemInteractions) out.itemInteractions = hello.itemInteractions.filter(keep);
   if (hello.emotes) out.emotes = { ...hello.emotes, sources: hello.emotes.sources.filter(source => keep(source.id)) };
@@ -113,6 +115,11 @@ export function applyPluginPolicy<T extends HelloLists>(input: T, policy?: Plugi
   return out as Omit<T, 'hints'> & { hints?: PluginHint[] };
 }
 
+/** Namespaces of add-on plugins that are off, for workstation calls (the server leaves their stations out). */
+export function skippedStations(policy?: PluginPolicy): string[] {
+  return policy?.disabled.length ? [...blocked(policy).namespaces].sort() : [];
+}
+
 /**
  * Hard calls into a plugin that is off: the server would still do them (the mods stay installed), so they are refused
  * here. Returns the reason, or undefined when the call is not about a disabled plugin.
@@ -134,7 +141,7 @@ export function pluginRefusal(name: ActionName, args: unknown, policy?: PluginPo
 
 /**
  * Where each plugin hint is shown: appended to the description of the first tool the plugin's entries appear in
- * (use-item, interact-block, container-menu, emote), so the model reads it next to the tool it is about. Tool
+ * (use-item, interact-block, container-menu, emote, produce-item), so the model reads it next to the tool it is about. Tool
  * descriptions are the one place all three agents (Claude, Codex, dsh) are sure to see. A hint whose plugin brings
  * none of these tools is not shown.
  */
@@ -151,7 +158,8 @@ function hintsByTool(hello: BodyHello): Map<string, PluginHint[]> {
     const tool = has([...items], ns) ? 'use-item'
       : has((hello.interactions ?? []).filter(id => !items.has(id)), ns) ? 'interact-block'
       : has(hello.adapters, ns) ? 'container-menu'
-      : has(hello.emotes?.sources.map(s => s.id), ns) ? 'emote' : '';
+      : has(hello.emotes?.sources.map(s => s.id), ns) ? 'emote'
+      : has(hello.workstations, ns) ? 'produce-item' : '';
     if (tool) per.set(tool, [...(per.get(tool) ?? []), hint]);
   }
   return per;

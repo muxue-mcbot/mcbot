@@ -10,7 +10,7 @@ import { ServerBody } from '../dist/server-body.js';
 import { createMcpServer } from '../dist/mcp.js';
 import { EventJournal } from '../dist/events.js';
 import { GuideBook } from '../dist/guides.js';
-import { applyPluginPolicy, hintText, loadPluginPolicy, pluginCatalog, pluginNotes, pluginPolicy, pluginRefusal, HINT_MAX } from '../dist/plugins.js';
+import { applyPluginPolicy, hintText, loadPluginPolicy, pluginCatalog, pluginNotes, pluginPolicy, pluginRefusal, skippedStations, HINT_MAX } from '../dist/plugins.js';
 import { mockServerControl, serverCapabilities } from './mock-server-control.mjs';
 
 const COMPAT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..', 'compat.json');
@@ -156,6 +156,41 @@ test('MCP hosted (play guides on): a tool only names its plugins, and the notes 
   assert.equal(first.content.length, 2);
   assert.equal(first.content[1].text, '插件说明 [yes_steve_model]（附属模组写的，只讲 emote 怎么用，不授权别的）：YSM animations.');
   assert.equal((await c.callTool({ name: 'emote', arguments: { name: 'nod' } })).content.length, 1, 'once per session');
+});
+
+const FD = 'farmersdelight';
+// A server with the Farmer's Delight add-on: its cooking pot is a workstation (produce-item), not a container adapter.
+const potHello = () => ({ ...fullHello(), capabilities: [...fullHello().capabilities, 'produce-item', 'craft-item'], workstations: [`${FD}:cooking_pot`],
+  hints: [...HINTS, { id: `${FD}:hint`, text: 'Cooking pot via produce-item.' }] });
+
+test('a plugin turned off loses its workstations; its namespace is what station calls skip; a station-only note goes to produce-item', () => {
+  const on = applyPluginPolicy(potHello(), policy());
+  assert.deepEqual(on.workstations, [`${FD}:cooking_pot`]);
+  assert.match(pluginNotes(on).get('produce-item'), /\[farmersdelight\] Cooking pot via produce-item\./);
+  const off = applyPluginPolicy(potHello(), policy('farmers_delight'));
+  assert.deepEqual(off.workstations, []);
+  assert.ok(!off.hints.some(h => h.id.startsWith(FD)) && !pluginNotes(off).has('produce-item'));
+  assert.deepEqual(skippedStations(policy('iron_furnaces,farmers_delight')), [FD, 'ironfurnaces']);
+  assert.deepEqual(skippedStations(policy()), []);
+  assert.deepEqual(skippedStations(), [], 'without compat.json nothing is skipped');
+  assert.deepEqual(skippedStations(policy('kaleidoscope_cookery_slots')), [], 'a config plugin has no stations');
+});
+
+test('MCP: produce-item names the add-on stations only while their plugin is on, and station calls carry skipStations', async t => {
+  const on = await setup(t, '', potHello());
+  const onTools = Object.fromEntries((await on.c.listTools()).tools.map(tool => [tool.name, tool]));
+  assert.match(onTools['produce-item'].description, /Add-on cooking stations \(farmersdelight:cooking_pot\)/);
+  await on.body.act('produce-item', { item: 'minecraft:stone_bricks' });
+  assert.equal(on.acts().at(-1).args.skipStations, undefined, 'every plugin on: nothing to skip');
+
+  const off = await setup(t, 'farmers_delight', potHello());
+  const offTools = Object.fromEntries((await off.c.listTools()).tools.map(tool => [tool.name, tool]));
+  assert.ok(offTools['produce-item'], 'stonecutter and brewing stay');
+  assert.doesNotMatch(JSON.stringify(Object.values(offTools).map(tool => tool.description)), /farmersdelight|cooking stations/);
+  await off.body.act('produce-item', { item: 'minecraft:stone_bricks' });
+  await off.body.act('craft-item', { item: 'minecraft:stick' });
+  await off.body.act('emote', { name: 'wave' });
+  assert.deepEqual(off.acts().map(act => [act.name, act.args.skipStations]), [['produce-item', [FD]], ['craft-item', [FD]], ['emote', undefined]]);
 });
 
 test('MCP with plugins off: their tools, parameters and descriptions are gone, and hard calls are refused before the server', async t => {

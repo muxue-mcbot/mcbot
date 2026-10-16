@@ -375,7 +375,8 @@ export function createMcpServer(rawBody: Body, events: EventJournal, options: { 
     }, async args => operationResult(await body.act('workstation-options', args)));
   }
   if (serverObserved && body.hello.capabilities.includes('produce-item')) {
-    register('produce-item', 'Stonecutter or brewing stand within 16 blocks. Stonecutter: count items. Brewing: item minecraft:potion (or splash_/lingering_potion) with potion, count 1-3 bottles, from the bottles and reagents you hold. It starts one stage (about 20 s) and leaves the bottles: go on; after each machine event call again with the same item and potion, and once more to take them out. wait:true stays through every stage (only when the player asks you to wait). MISSING_MATERIALS: tell the player.', {
+    const cooking = body.hello.workstations?.length ? ` Add-on cooking stations (${body.hello.workstations.join(', ')}): item is the dish, count dishes, inputs and containers from your inventory; it loads, sees it start and leaves; after the machine event call again with the same item to take them out. STATION_NOT_READY says why (e.g. no heat).` : '';
+    register('produce-item', `Stonecutter or brewing stand within 16 blocks. Stonecutter: count items. Brewing: item minecraft:potion (or splash_/lingering_potion) with potion, count 1-3 bottles, from the bottles and reagents you hold. It starts one stage (about 20 s) and leaves the bottles: go on; after each machine event call again with the same item and potion, and once more to take them out.${cooking} wait:true stays through every stage (only when the player asks you to wait). MISSING_MATERIALS: tell the player.`, {
       item: registryId, count: z.number().int().min(1).max(64).optional(), potion: registryId.optional(), wait: z.boolean().optional(),
       station: z.object(blockXyz).optional(), say: z.string().min(1).max(256).optional(), timeoutMs: z.number().int().min(1000).max(600000).optional(),
     }, async ({ say, ...args }) => {

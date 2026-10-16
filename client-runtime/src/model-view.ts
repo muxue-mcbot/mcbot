@@ -101,7 +101,8 @@ export function summarizeOperation(operation: Operation) {
     // machine-items: the handler's slots and sides, and the slots after a move.
     for (const key of ['stations', 'ways', 'subjects', 'slots', 'sides', 'after'])
       if (Array.isArray(result[key]) && JSON.stringify(result[key]).length <= 6000) compact[key] = result[key];
-    if (result.container) compact.container = summarizeContainer(result.container as Container);
+    // An open menu; a cooking receipt's container is the item dishes are served in (a string, kept above).
+    if (result.container && typeof result.container === 'object' && Array.isArray((result.container as Container).slots)) compact.container = summarizeContainer(result.container as Container);
     // Items a carried backpack took: where they went ({storage id: count}), bounded.
     const storedIn = boundedStoredIn(result.storedIn);
     if (storedIn) compact.storedIn = storedIn;

@@ -57,6 +57,15 @@ final class NavigationTest {
         check(!FlatApproach.supported(sole,Shapes.create(new AABB(0,1,0,0.4,2,1))),"Side ledge without centre support rejected");
         check(!ServerController.atomicAction("navigation-3d"),"Navigation capability declaration cannot be invoked as a write action");
         check(ServerController.atomicAction("retreat-from-entity"),"Safe retreat uses the existing atomic action admission boundary");
+        // A pickup may stand next to heat that only hurts when stepped on (a lit stove, magma), never next to fire or lava
+        java.util.Set<net.minecraft.core.BlockPos> flames=new java.util.HashSet<>();
+        check(NativeNavigation.flameFree(flames::contains,0,64,0),"Nothing burning around: a pickup may stand there");
+        flames.add(new net.minecraft.core.BlockPos(1,63,-1));
+        check(!NativeNavigation.flameFree(flames::contains,0,64,0),"Fire diagonally one below counts, as vanilla looks for burning neighbours");
+        check(NativeNavigation.flameFree(flames::contains,0,64,2),"Fire two blocks away does not");
+        flames.clear();flames.add(new net.minecraft.core.BlockPos(0,65,0));
+        check(!NativeNavigation.flameFree(flames::contains,0,64,0),"Fire at head height counts");
+        check(NativeNavigation.HEAT_EDGE_MALUS>0,"A heat edge costs more than open ground but is not refused");
         System.out.println("NavigationTest: "+checks+" checks passed");
     }
 }

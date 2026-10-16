@@ -31,6 +31,11 @@ final class ModAdaptersTest {
         public boolean occupied(net.minecraft.server.level.ServerLevel level,net.minecraft.core.BlockPos position) {return false;}
         public boolean seatEntity(net.minecraft.world.entity.Entity entity) {return answer;}
     }
+    private record FakeCrop(String id,CropRule.Harvest answer,boolean ripe,boolean throwing) implements CropRule {
+        public boolean installed() {return true;}
+        public Harvest harvest(BlockState state) {if(throwing)throw new IllegalStateException("broken");return answer;}
+        public boolean ripe(BlockState state) {if(throwing)throw new IllegalStateException("broken");return ripe;}
+    }
     private record FakeContainer(String id,boolean installed) implements ContainerAdapter {
         public boolean block(BlockState state){return false;}
         public boolean menu(AbstractContainerMenu menu){return false;}
@@ -176,7 +181,17 @@ final class ModAdaptersTest {
         boolean seatDuplicate=false;
         try { McbotApi.registerSeat(new FakeSeat("testmod:seat",true,false)); } catch(IllegalArgumentException duplicate) { seatDuplicate=true; }
         check(seatDuplicate,"a seat id cannot be registered twice");
+        // Crop rules: same id rules; the first rule that answers decides; one that throws is no rule
+        McbotApi.registerCropRule(new FakeCrop("testmod:tomatoes",CropRule.Harvest.PICK,true,false));
+        boolean cropDuplicate=false;
+        try { McbotApi.registerCropRule(new FakeCrop("testmod:tomatoes",CropRule.Harvest.GROWING,false,false)); } catch(IllegalArgumentException duplicate) { cropDuplicate=true; }
+        check(cropDuplicate,"a crop rule id cannot be registered twice");
         McbotApi.Registered registered=McbotApi.freeze();
+        check(registered.cropRules().size()==1&&new McbotApi.Registered(List.of(),List.of(),List.of(),List.of(),List.of(),List.of(),List.of(),List.of()).cropRules().isEmpty(),"freeze returns the registered crop rules; the older shapes have none");
+        CropRule pick=new FakeCrop("a:pick",CropRule.Harvest.PICK,true,false),silent=new FakeCrop("a:none",null,false,false),brokenCrop=new FakeCrop("b:broken",CropRule.Harvest.GROWING,true,true);
+        check(ModAdapters.cropRule(List.of(silent,pick),null).rule()==pick&&ModAdapters.cropRule(List.of(silent,pick),null).harvest()==CropRule.Harvest.PICK,"crop dispatch: a rule that returns null is skipped, the next one decides");
+        check(ModAdapters.cropRule(List.of(brokenCrop,pick),null).rule()==pick&&ModAdapters.cropRule(List.of(brokenCrop),null)==null&&ModAdapters.cropRule(List.of(),null)==null,"crop dispatch: a rule that throws is no rule; none gives null");
+        check(ModAdapters.cropRipe(pick,null)&&!ModAdapters.cropRipe(brokenCrop,null),"ripe comes from the rule; one that throws says not ripe");
         check(registered.containers().size()==1&&registered.interactions().size()==1,"freeze returns what add-ons registered");
         check(registered.seats().size()==1&&new McbotApi.Registered(List.of(),List.of(),List.of(),List.of(),List.of(),List.of(),List.of()).seats().isEmpty(),"freeze returns the registered seats; the older shapes have none");
         SeatAdapter yes=new FakeSeat("a:yes",true,false),brokenSeat=new FakeSeat("b:broken",true,true);

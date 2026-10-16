@@ -164,6 +164,12 @@ final class ItemInteractions {
                     unexpected.add("held item components changed");
                 continue;
             }
+            if(slot==heldSlot&&!empty(b)&&!empty(a)&&!sameKind&&expected.gainedItems().contains(a.get("id").getAsString())) {
+                // The last held one was used up and the product took its place (e.g. the last bowl filled in hand).
+                consumed=b.get("count").getAsInt();
+                gained.add(obj("slot",slot,"id",a.get("id").getAsString(),"count",a.get("count").getAsInt()));
+                continue;
+            }
             boolean grew=!empty(a)&&expected.gainedItems().contains(a.get("id").getAsString())&&
                 (empty(b)||(sameKind&&b.getAsJsonObject("components").equals(a.getAsJsonObject("components"))&&a.get("count").getAsInt()>b.get("count").getAsInt()));
             if(grew) gained.add(obj("slot",slot,"id",a.get("id").getAsString(),"count",a.get("count").getAsInt()-(empty(b)?0:b.get("count").getAsInt())));

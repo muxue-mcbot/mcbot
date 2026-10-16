@@ -52,6 +52,20 @@ final class WorkstationCoreTest {
         StationLayout furnace=StationLayout.processor(0,1,2);
         check(furnace.slot(Port.FUEL)==1&&!furnace.isGrid()&&furnace.slot(Port.CONTAINER)==-1,"processor layout, absent port is -1");
         check(StationLayout.processor(0,-1,1).slots(Port.FUEL).isEmpty(),"a processor without fuel has no fuel port");
+        // A cooking pot: six inputs in any order, the meal shown while it waits, a container slot and the result.
+        StationLayout pot=new StationLayout(Map.of(Port.INGREDIENT,List.of(0,1,2,3,4,5),Port.BUFFER,List.of(6),Port.CONTAINER,List.of(7),Port.RESULT,List.of(8)),0,0);
+        check(pot.slots(Port.INGREDIENT).size()==6&&pot.slot(Port.BUFFER)==6&&pot.slot(Port.CONTAINER)==7&&pot.slot(Port.RESULT)==8&&!pot.isGrid()&&pot.slot(Port.FUEL)==-1,"multi-input processor layout");
+        // Its shapeless inputs: two cells of the same item need twice the sets; each cell keeps its own slot.
+        var cider=MaterialAllocator.allocate(List.of(is("apple"),is("apple"),is("sugar")),List.of(src(0,"apple",5),src(1,"sugar",2)),2);
+        check(cider!=null&&cider.size()==3&&cider.get(0).values().stream().mapToInt(Integer::intValue).sum()==2&&cider.get(1).values().stream().mapToInt(Integer::intValue).sum()==2&&cider.get(2).get(1)==2,"two sets of apple, apple, sugar from 5 apples and 2 sugar");
+        check(MaterialAllocator.allocate(List.of(is("apple"),is("apple"),is("sugar")),List.of(src(0,"apple",3),src(1,"sugar",2)),2)==null,"3 apples are not enough for two sets");
+        // What a pot holds is this recipe's only when every slot fills a different cell and nothing is left over.
+        List<java.util.function.Predicate<String>> cider3=List.of(is("apple"),is("apple"),is("sugar"));
+        check(MaterialAllocator.oneSet(cider3,List.of("sugar","apple","apple")),"the pot's inputs in any order are one set");
+        check(!MaterialAllocator.oneSet(cider3,List.of("apple","sugar")),"one apple short is not this recipe");
+        check(!MaterialAllocator.oneSet(cider3,List.of("apple","sugar","sugar")),"a slot cannot fill two cells, nor a cell take the wrong item");
+        check(!MaterialAllocator.oneSet(cider3,List.of("apple","apple","sugar","beef")),"something extra is another recipe");
+        check(!MaterialAllocator.oneSet(cider3,List.of())&&MaterialAllocator.oneSet(List.of(is("apple","pear"),is("apple","pear")),List.of("pear","apple")),"empty is nothing; options still match");
         refused(()->new StationLayout(Map.of(Port.INGREDIENT,List.of(0),Port.RESULT,List.of(0)),0,0),"a slot cannot be in two ports");
         refused(()->new StationLayout(Map.of(Port.INGREDIENT,List.of(1,2,3),Port.RESULT,List.of(0)),2,2),"a 2x2 grid needs 4 cells");
         refused(()->new StationLayout(Map.of(Port.RESULT,List.of(-1)),0,0),"negative slots are refused");

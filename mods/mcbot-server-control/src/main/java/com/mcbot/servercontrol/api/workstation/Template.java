@@ -12,9 +12,13 @@ public enum Template {
      */
     GRID_CRAFTER,
     /**
-     * A machine that works by itself once loaded: one {@link Port#INGREDIENT} input, an optional {@link Port#FUEL}
-     * slot and a {@link Port#RESULT}. The recipe for an input comes from {@link RecipeSource#forInput}; the body may
-     * wait beside it and take results as they come, or leave and collect later.
+     * A machine that works by itself once loaded: {@link Port#INGREDIENT} inputs, an optional {@link Port#FUEL} slot
+     * and a {@link Port#RESULT}. With one input (a furnace) smelt-item drives it, the recipe for an input coming from
+     * {@link RecipeSource#forInput}. With several (a cooking pot) produce-item drives it: the recipe for the wanted item
+     * comes from {@link RecipeSource#producing} ({@link StationRecipe#shapeless}), each input goes into an ingredient
+     * slot of its own, the recipe's container into the optional {@link Port#CONTAINER} slot, and work in progress may
+     * show in a {@link Port#BUFFER} slot. The body may wait beside it and take results as they come, or leave and
+     * collect later.
      */
     PROCESSOR,
     /**
