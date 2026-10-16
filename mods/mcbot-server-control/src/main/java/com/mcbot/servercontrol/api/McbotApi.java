@@ -25,6 +25,7 @@ public final class McbotApi {
     private static final List<EmoteSource> EMOTES = new ArrayList<>();
     private static final List<AppearanceSource> APPEARANCES = new ArrayList<>();
     private static final List<SeatAdapter> SEATS = new ArrayList<>();
+    private static final List<CropRule> CROP_RULES = new ArrayList<>();
     private static final List<Hint> HINTS = new ArrayList<>();
     private static final Set<String> HINT_NAMESPACES = new HashSet<>();
     private static final Set<String> IDS = new HashSet<>();
@@ -78,6 +79,13 @@ public final class McbotApi {
     public static synchronized void registerSeat(SeatAdapter adapter) {
         String id = checkId(Objects.requireNonNull(adapter, "adapter").id());
         SEATS.add(adapter);
+        IDS.add(id);
+    }
+
+    /** How tend-crops treats a mod's crop the generic rules get wrong (picked, or a growing stage); see {@link CropRule}. */
+    public static synchronized void registerCropRule(CropRule rule) {
+        String id = checkId(Objects.requireNonNull(rule, "rule").id());
+        CROP_RULES.add(rule);
         IDS.add(id);
     }
 
@@ -165,17 +173,21 @@ public final class McbotApi {
     /** Snapshot of what add-ons registered. Internal: called by MCBOT when a server starts. */
     public static synchronized Registered freeze() {
         frozen = true;
-        return new Registered(List.copyOf(CONTAINERS), List.copyOf(INTERACTIONS), List.copyOf(PICKUP_SINKS), List.copyOf(WORKSTATIONS), List.copyOf(EMOTES), List.copyOf(APPEARANCES), List.copyOf(HINTS), List.copyOf(SEATS));
+        return new Registered(List.copyOf(CONTAINERS), List.copyOf(INTERACTIONS), List.copyOf(PICKUP_SINKS), List.copyOf(WORKSTATIONS), List.copyOf(EMOTES), List.copyOf(APPEARANCES), List.copyOf(HINTS), List.copyOf(SEATS), List.copyOf(CROP_RULES));
     }
 
-    public record Registered(List<ContainerAdapter> containers, List<ItemInteraction> interactions, List<PickupSink> pickupSinks, List<WorkstationAdapter> workstations, List<EmoteSource> emotes, List<AppearanceSource> appearances, List<Hint> hints, List<SeatAdapter> seats) {
+    public record Registered(List<ContainerAdapter> containers, List<ItemInteraction> interactions, List<PickupSink> pickupSinks, List<WorkstationAdapter> workstations, List<EmoteSource> emotes, List<AppearanceSource> appearances, List<Hint> hints, List<SeatAdapter> seats, List<CropRule> cropRules) {
         /** The shape before hints existed. */
         public Registered(List<ContainerAdapter> containers, List<ItemInteraction> interactions, List<PickupSink> pickupSinks, List<WorkstationAdapter> workstations, List<EmoteSource> emotes, List<AppearanceSource> appearances) {
-            this(containers, interactions, pickupSinks, workstations, emotes, appearances, List.of(), List.of());
+            this(containers, interactions, pickupSinks, workstations, emotes, appearances, List.of(), List.of(), List.of());
         }
         /** The shape before seats existed. */
         public Registered(List<ContainerAdapter> containers, List<ItemInteraction> interactions, List<PickupSink> pickupSinks, List<WorkstationAdapter> workstations, List<EmoteSource> emotes, List<AppearanceSource> appearances, List<Hint> hints) {
-            this(containers, interactions, pickupSinks, workstations, emotes, appearances, hints, List.of());
+            this(containers, interactions, pickupSinks, workstations, emotes, appearances, hints, List.of(), List.of());
+        }
+        /** The shape before crop rules existed. */
+        public Registered(List<ContainerAdapter> containers, List<ItemInteraction> interactions, List<PickupSink> pickupSinks, List<WorkstationAdapter> workstations, List<EmoteSource> emotes, List<AppearanceSource> appearances, List<Hint> hints, List<SeatAdapter> seats) {
+            this(containers, interactions, pickupSinks, workstations, emotes, appearances, hints, seats, List.of());
         }
     }
 }

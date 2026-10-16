@@ -1,0 +1,46 @@
+plugins {
+    id 'java-library'
+    id 'net.neoforged.moddev' version '2.0.147'
+}
+version = mod_version
+group = 'com.mcbot.addon.farmersdelight'
+base { archivesName = 'mcbot-farmers-delight' }
+java.toolchain.languageVersion = JavaLanguageVersion.of(21)
+repositories { mavenCentral() }
+// Only the MCBOT API is needed at compile time; Farmer's Delight itself is reached by class name and reflection at runtime,
+// so a changed or missing version makes the adapter report itself as not installed instead of crashing the server.
+// The core jar name follows the core's own mod_version, so bumping the core needs no change here
+def coreProps = new Properties()
+file('../mcbot-server-control/gradle.properties').withInputStream { coreProps.load(it) }
+def core = file("../mcbot-server-control/build/libs/mcbot-server-control-${coreProps.mod_version}.jar")
+dependencies {
+    compileOnly files(core)
+    testImplementation files(core)
+    testImplementation 'com.google.code.gson:gson:2.10.1'
+}
+neoForge {
+    version = project.neo_version
+    parchment { mappingsVersion = '2024.11.17'; minecraftVersion = '1.21.1' }
+    mods { mcbot_farmers_delight { sourceSet(sourceSets.main) } }
+}
+var generateModMetadata = tasks.register('generateModMetadata', ProcessResources) {
+    inputs.property 'mod_version', mod_version
+    inputs.property 'core_min', core_min
+    expand mod_version: mod_version, core_min: core_min
+    from 'src/main/templates'
+    into 'build/generated/sources/modMetadata'
+}
+sourceSets.main.resources.srcDir generateModMetadata
+neoForge.ideSyncTask generateModMetadata
+sourceSets.test.compileClasspath += sourceSets.main.compileClasspath
+sourceSets.test.runtimeClasspath += sourceSets.main.runtimeClasspath
+tasks.withType(JavaCompile).configureEach { options.encoding = 'UTF-8' }
+tasks.named('compileJava') { doFirst { if (!core.exists()) throw new GradleException('Build mods/mcbot-server-control first (its jar provides the MCBOT API)') } }
+tasks.register('adapterTest', JavaExec) {
+    dependsOn testClasses
+    classpath = sourceSets.test.runtimeClasspath
+    mainClass = 'com.mcbot.addon.farmersdelight.FarmersDelightRulesTest'
+    jvmArgs '-ea'
+}
+tasks.named('check') { dependsOn 'adapterTest' }
+tasks.named('test') { enabled = false }

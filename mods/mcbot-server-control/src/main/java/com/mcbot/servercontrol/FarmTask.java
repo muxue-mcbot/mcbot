@@ -1,6 +1,7 @@
 package com.mcbot.servercontrol;
 
 import com.google.gson.*;
+import com.mcbot.servercontrol.api.CropRule;
 import com.mcbot.servercontrol.mixin.ServerPlayerGameModeAccessor;
 import java.util.*;
 import java.util.function.Predicate;
@@ -37,14 +38,15 @@ import static com.mcbot.servercontrol.NativeWorkstation.*;
  * protection and mods see a player. Crops are recognised by kind: ordinary crops (CropBlock or #minecraft:crops with
  * an age property, modded ones too), nether wart, cocoa, sweet berries (picked, not broken), melons and pumpkins
  * grown from an attached stem (decorative ones are left alone) and sugar cane above its bottom block. Stems,
- * torchflowers and pitcher plants are never broken. till:N turns the N moist dirt or grass blocks nearest the centre
+ * torchflowers and pitcher plants are never broken. Add-on crop rules ({@link CropRule}) cover mod crops the generic
+ * rules get wrong: picked ones (Farmer's Delight tomatoes) are picked like berries, growing stages are left to grow. till:N turns the N moist dirt or grass blocks nearest the centre
  * (water within 4 blocks) into farmland with a hoe, sown in the same pass when plant is given. survey:true only counts
  * and touches nothing.
  */
 final class FarmTask implements BodyTask {
     /** A refusal or fault in tick ends the operation like this (BodyTask, docs/companion_state_design.md 8.3). */
     @Override public BodyTask.Failure failure(){return new BodyTask.Failure(this::progress,true,"Farm task fault",false);}
-    enum Kind { CROP, WART, COCOA, BERRY, GOURD, CANE }
+    enum Kind { CROP, WART, COCOA, BERRY, GOURD, CANE, PICK }
     record Crop(BlockPos pos,Kind kind,BlockState state) {}
     /** Put `seed` on `soil`'s `face` so that `pos` becomes `block` (replanting a harvested crop or planting empty farmland). */
     record Plant(BlockPos pos,Item seed,BlockPos soil,Direction face,Block block,boolean replant) {}
@@ -146,6 +148,9 @@ final class FarmTask implements BodyTask {
     /** What kind of crop this block is, or null; `ripe` says whether it is ready now. */
     static Kind kind(BlockState state) {
         Block block=state.getBlock();
+        // An add-on's rule wins over the generic ones; a growing stage counts as a crop that is never ripe.
+        ModAdapters.CropVerdict rule=ModAdapters.cropRule(state);
+        if(rule!=null)return rule.harvest()==CropRule.Harvest.PICK?Kind.PICK:Kind.CROP;
         if(neverHarvested(block))return null;
         if(block instanceof NetherWartBlock)return Kind.WART;
         if(block instanceof CocoaBlock)return Kind.COCOA;
@@ -157,7 +162,7 @@ final class FarmTask implements BodyTask {
     }
     static boolean ripe(ServerLevel level,BlockPos pos,BlockState state,Kind kind) {
         return switch(kind) {
-            case CROP -> state.getBlock() instanceof CropBlock crop?crop.isMaxAge(state):state.getValue(age(state))>=Collections.max(age(state).getPossibleValues());
+            case CROP -> ModAdapters.cropRule(state)==null&&(state.getBlock() instanceof CropBlock crop?crop.isMaxAge(state):state.getValue(age(state))>=Collections.max(age(state).getPossibleValues()));
             case WART -> state.getValue(NetherWartBlock.AGE)>=3;
             case COCOA -> state.getValue(CocoaBlock.AGE)>=2;
             case BERRY -> state.getValue(SweetBerryBushBlock.AGE)>=2;
@@ -165,6 +170,7 @@ final class FarmTask implements BodyTask {
             case GOURD -> Direction.Plane.HORIZONTAL.stream().anyMatch(d->{BlockState s=level.getBlockState(pos.relative(d));return s.getBlock() instanceof AttachedStemBlock&&s.getValue(AttachedStemBlock.FACING)==d.getOpposite();});
             // The lowest cane above the bottom one: breaking it brings the rest down, the bottom grows again.
             case CANE -> level.getBlockState(pos.below()).is(state.getBlock())&&!level.getBlockState(pos.below(2)).is(state.getBlock());
+            case PICK -> {ModAdapters.CropVerdict rule=ModAdapters.cropRule(state);yield rule!=null&&ModAdapters.cropRipe(rule.rule(),state);}
         };
     }
     /** The item that plants this crop again, when it is a plain block item for exactly this block. */
@@ -409,12 +415,12 @@ final class FarmTask implements BodyTask {
     private void action(ServerboundPlayerActionPacket.Action action,BlockPos pos,Direction face){player.connection.handlePlayerAction(new ServerboundPlayerActionPacket(action,pos,face,++sequence));}
     private void harvest(Crop crop,BlockHitResult hit) {
         BlockPos pos=crop.pos();BlockState state=level().getBlockState(pos);
-        if(crop.kind()==Kind.BERRY) {
-            // Picked with a right-click; bone meal in hand would be spent instead.
-            if(player.getInventory().getSelected().is(Items.BONE_MEAL)&&!hold(s->!s.is(Items.BONE_MEAL)))throw error("BUSY","Only bone meal in the hotbar; cannot pick berries");
+        if(crop.kind()==Kind.BERRY||crop.kind()==Kind.PICK) {
+            // Picked with a right-click (berries, and mod crops a rule marks as picked); bone meal in hand would be spent instead.
+            if(player.getInventory().getSelected().is(Items.BONE_MEAL)&&!hold(s->!s.is(Items.BONE_MEAL)))throw error("BUSY","Only bone meal in the hotbar; cannot pick "+(crop.kind()==Kind.BERRY?"berries":"this crop"));
             look(player,hit.getLocation());
             player.connection.handleUseItemOn(new ServerboundUseItemOnPacket(InteractionHand.MAIN_HAND,hit,++sequence));
-            if(level().getBlockState(pos).equals(state)){refused(pos,"pick berries","the game refused");return;}
+            if(level().getBlockState(pos).equals(state)){refused(pos,crop.kind()==Kind.BERRY?"pick berries":"pick","the game refused");return;}
             count(harvested,state);ripe.remove(crop);lastHarvest=now();return;
         }
         Item seed=replantable(crop.kind())?seed(level(),pos,state):null;

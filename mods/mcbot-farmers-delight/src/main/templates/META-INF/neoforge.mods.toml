@@ -1,0 +1,34 @@
+modLoader="javafml"
+loaderVersion="[1,)"
+license="Apache-2.0"
+[[mods]]
+modId="mcbot_farmers_delight"
+version="${mod_version}"
+displayName="MCBOT × Farmer's Delight"
+authors="muxue"
+description='''MCBOT add-on: lets the bot use Farmer's Delight — the cutting board, serving feasts, slicing pies, picking tomatoes without breaking the vines, and cooking in the cooking pot. Verified only against Farmer's Delight 1.2.9; other versions stay unsupported. Contains no Farmer's Delight code or assets.'''
+displayTest="IGNORE_ALL_VERSION"
+[[dependencies.mcbot_farmers_delight]]
+modId="mcbot_server_control"
+type="required"
+versionRange="[${core_min},)"
+ordering="AFTER"
+side="BOTH"
+[[dependencies.mcbot_farmers_delight]]
+modId="farmersdelight"
+type="optional"
+versionRange="*"
+ordering="NONE"
+side="BOTH"
+[[dependencies.mcbot_farmers_delight]]
+modId="neoforge"
+type="required"
+versionRange="[21.1.217,)"
+ordering="NONE"
+side="BOTH"
+[[dependencies.mcbot_farmers_delight]]
+modId="minecraft"
+type="required"
+versionRange="[1.21.1]"
+ordering="NONE"
+side="BOTH"

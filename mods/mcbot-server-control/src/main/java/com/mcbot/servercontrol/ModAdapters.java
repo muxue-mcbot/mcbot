@@ -3,6 +3,7 @@ package com.mcbot.servercontrol;
 import com.google.gson.JsonArray;
 import com.mcbot.servercontrol.api.AppearanceSource;
 import com.mcbot.servercontrol.api.ContainerAdapter;
+import com.mcbot.servercontrol.api.CropRule;
 import com.mcbot.servercontrol.api.EmoteSource;
 import com.mcbot.servercontrol.api.ItemInteraction;
 import com.mcbot.servercontrol.api.McbotApi;
@@ -42,6 +43,7 @@ final class ModAdapters {
     private static volatile List<EmoteSource> emoteSources=List.of();
     private static volatile List<AppearanceSource> appearances=List.of();
     private static volatile List<SeatAdapter> seats=List.of();
+    private static volatile List<CropRule> cropRules=List.of();
     private static volatile Set<String> itemHandlerMods=Set.of();
     private static volatile List<McbotApi.Hint> hints=List.of();
 
@@ -57,6 +59,7 @@ final class ModAdapters {
         emoteSources=installedUnique(registered.emotes(),EmoteSource::id,EmoteSource::installed,ids,problems,"emote source");
         appearances=installedUnique(registered.appearances(),AppearanceSource::id,AppearanceSource::installed,ids,problems,"appearance source");
         seats=installedUnique(registered.seats(),SeatAdapter::id,SeatAdapter::installed,ids,problems,"seat adapter");
+        cropRules=installedUnique(registered.cropRules(),CropRule::id,CropRule::installed,ids,problems,"crop rule");
         hints=registered.hints();
         itemHandlerMods=GenericItemSlots.enabled(GenericItemSlots.load(configDirectory.resolve(GenericItemSlots.FILE),problems),McbotApi::versionsMatch,problems);
         loaded=new Loaded(combined.containers(),combined.interactions(),List.copyOf(problems),installedSinks(registered.pickupSinks()));
@@ -159,6 +162,24 @@ final class ModAdapters {
         return false;
     }
 
+    /** A crop rule's verdict on a block: which rule (for ripe) and how to harvest it. */
+    record CropVerdict(CropRule rule,CropRule.Harvest harvest) {}
+    /** The installed crop rule that covers this mod block, or null; vanilla blocks never reach a rule, one that throws does not match. */
+    static CropVerdict cropRule(BlockState state) {
+        if(cropRules.isEmpty()||BuiltInRegistries.BLOCK.getKey(state.getBlock()).getNamespace().equals("minecraft")) return null;
+        return cropRule(cropRules,state);
+    }
+    static CropVerdict cropRule(List<CropRule> rules,BlockState state) {
+        for(CropRule rule:rules) {
+            try { CropRule.Harvest harvest=rule.harvest(state);if(harvest!=null) return new CropVerdict(rule,harvest); } catch(RuntimeException | LinkageError broken) { /* not a match */ }
+        }
+        return null;
+    }
+    /** Whether a PICK crop is ripe; a rule that throws says no. */
+    static boolean cropRipe(CropRule rule,BlockState state) {
+        try { return rule.ripe(state); } catch(RuntimeException | LinkageError broken) { return false; }
+    }
+
     static List<PickupSink> installedSinks(List<PickupSink> sinks) {
         List<PickupSink> result=new ArrayList<>();
         for(PickupSink sink:sinks) if(safeId(sink::id)!=null&&installed(sink::installed)) result.add(sink);
@@ -224,7 +245,7 @@ final class ModAdapters {
     static Set<String> itemHandlerMods() {return itemHandlerMods;}
     /**
      * Add-on usage notes for hello: only those whose namespace has something installed right now (a container, an
-     * interaction, a workstation, an emote or appearance source, a pickup sink), so a note never describes tools that
+     * interaction, a workstation, an emote or appearance source, a pickup sink, a crop rule), so a note never describes tools that
      * are absent because the adapted mod is missing or the wrong version.
      */
     static JsonArray hintsJson() {
@@ -235,6 +256,7 @@ final class ModAdapters {
         for(EmoteSource e:emoteSources) live.add(namespaceOf(safeId(e::id)));
         for(AppearanceSource a:appearances) live.add(namespaceOf(safeId(a::id)));
         for(SeatAdapter s:seats) live.add(namespaceOf(safeId(s::id)));
+        for(CropRule c:cropRules) live.add(namespaceOf(safeId(c::id)));
         for(PickupSink p:pickupSinks()) live.add(namespaceOf(safeId(p::id)));
         return hintsJson(hints,live);
     }
