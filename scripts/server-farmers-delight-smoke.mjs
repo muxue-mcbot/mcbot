@@ -1,12 +1,18 @@
 #!/usr/bin/env node
 // 8c 农夫乐事的隔离服实测，全程走真实 MCP：
 //   1. 砧板：空砧板取、放没配方的东西、副手拿着东西时放、放了再放、拿错工具切都被拒绝；放一个卷心菜、用刀切、捡回叶子、空手取回；
+//      砧板上摆着刀（carving）不能切、空手取回刀；
 //   2. 宴席：拿错容器被拒绝；拿碗盛烤鸡（有剩菜）；镶馅南瓜最后一份方块消失；饭团拼盘不要容器；
 //   3. 派：拿木棍切被拒绝；用刀切一块；切最后一块派消失；
 //   4. 番茄：tend-crops survey 认出熟番茄和番茄苗；收的时候右键摘、藤留着回到 0 龄、番茄苗不动；
 //   5. 厨锅：缺料报 MISSING_MATERIALS（碗单独一行）；没热源报 STATION_NOT_READY；手里拿着碗也能放好就走；来早了 STILL_COOKING；
-//      到时间 machine 事件说做好了；回去取出；wait:true 站着等做好就取；
-//   6. 关掉「给 AI 用」再开一个运行端：工具里没有农夫乐事，produce-item 带 skipStations，服务端不用锅（NO_RECIPE）。
+//      到时间 machine 事件说做好了；回去取出；wait:true 站着等做好就取；近的锅里有别的菜等着盛就换一口；
+//   6. 炉灶和平底锅：打火石点着炉灶、再点被拒绝；木棍、没热源的平底锅被拒绝；整组土豆放进炉灶上的平底锅、空手取回、再放；
+//      到时间捡回烤好的土豆；
+//   7. 蘑菇菌落：剪刀剪一个、还没长的被拒绝；
+//   8. 橱柜和篮子：discover-containers 找到、container-list 列出、container-withdraw 取出；
+//   9. 卷心菜、洋葱、稻米：tend-crops 收卷心菜和洋葱并补种，稻米只收上半截稻穗、下半截留着；
+//  10. 关掉「给 AI 用」再开一个运行端：工具里没有农夫乐事，produce-item 带 skipStations，服务端不用锅（NO_RECIPE）。
 // 平坦世界 world，不启停服务器、不调用模型、不计算哈希。
 // 需要：隔离服 mods 里有 farmersdelight 1.2.9、含 8c 接口的 mcbot-server-control 和 mcbot-farmers-delight；client-runtime 已构建。
 import assert from 'node:assert/strict';
@@ -19,7 +25,7 @@ const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const flags = process.argv.slice(2);
 if (flags.includes('--help') || !flags.includes('--allow-fixture')) {
   console.log('MC_SERVER_DIR=<隔离服绝对路径> node scripts/server-farmers-delight-smoke.mjs --allow-fixture');
-  console.log('固定25568/25578；平坦世界 world；夹具区 x6790..6812 z6392..6410 y200 以上；约 3 分钟。');
+  console.log('固定25568/25578；平坦世界 world；夹具区 x6790..6812 z6392..6410 y199 以上；约 2 分钟。');
   process.exit(flags.includes('--help') ? 0 : 1);
 }
 assert(process.env.MC_SERVER_DIR && path.isAbsolute(process.env.MC_SERVER_DIR), '必须明确设置绝对路径MC_SERVER_DIR');
@@ -41,7 +47,8 @@ const secrets = [connection.token, props['rcon.password']].filter(Boolean);
 const redact = text => { let value = String(text); for (const secret of secrets) value = value.replaceAll(secret, '[redacted]'); return value; };
 const report = { started: new Date().toISOString(), serverDir, checks: [], facts: {}, calls: [], cleanup: [],
   limitations: ['没有使用真实模型和测试玩家。', '只测农夫乐事 1.2.9。',
-    '没测（只有离线测试）：锅里有别的菜时换锅、放进去不开始做（RECIPE_REFUSED）、砧板上放着刀（carving）、区块卸载和换维度后的 machine 事件。'] };
+    '没测（只有离线测试）：放进去不开始做（RECIPE_REFUSED）、区块卸载和换维度后的 machine 事件、泡在水里的平底锅。',
+    '不支持也没测：在炉灶上直接烤（Bot 不进点着的炉灶旁边那一圈，烤好的捡不到）、在水里种稻米（tend-crops 不种）、篮子自己吸东西；平底锅烤好不发 machine 事件（模型按 readyInSeconds 回来捡）。'] };
 const save = () => fs.writeFile(path.join(dir, 'report.json'), redact(JSON.stringify(report, null, 2)) + '\n');
 function check(name, passed, detail) { report.checks.push({ name, passed: !!passed, ...(detail === undefined ? {} : { detail }) }); assert(passed, name + (detail ? ' ' + redact(JSON.stringify(detail)).slice(0, 2500) : '')); console.log('PASS ' + name); }
 const command = async text => (await rcon([text], { serverDir, timeoutMs: 5000 }))[0];
@@ -122,19 +129,28 @@ async function pickUp(item, total) {
 
 const FD = 'farmersdelight';
 const PLACE = `${FD}:cutting_board/place`, CUT = `${FD}:cutting_board/cut`, TAKE = `${FD}:cutting_board/take`, SERVE = `${FD}:feast/serve`, SLICE = `${FD}:pie/slice`;
+const STOVE_LIGHT = `${FD}:stove/light`, SKILLET_ADD = `${FD}:skillet/add`, SKILLET_TAKE = `${FD}:skillet/take`, SHEAR = `${FD}:mushroom_colony/harvest`;
+const INTERACTIONS = [PLACE, CUT, TAKE, SERVE, SLICE, STOVE_LIGHT, SKILLET_ADD, SKILLET_TAKE, SHEAR];
 const [X0, X1, Z0, Z1, Y] = [6790, 6812, 6392, 6410, 200];
 const BOARD = [6800, 201, 6400], CHICKEN = [6803, 201, 6400], PUMPKIN = [6805, 201, 6400], ROLLS = [6807, 201, 6400];
-const PIE = [6803, 201, 6404], LAST_PIE = [6805, 201, 6404], TOMATO = [6800, 201, 6407], BUDDING = [6802, 201, 6407], POT = [6796, 201, 6404];
+const PIE = [6803, 201, 6404], LAST_PIE = [6805, 201, 6404], TOMATO = [6800, 201, 6407], BUDDING = [6802, 201, 6407], POT = [6796, 201, 6404], POT2 = [6794, 201, 6404];
+// 平底锅照玩家常用的摆法放在点着的炉灶上。Bot 走路不进点着的炉灶（以及岩浆块、营火）旁边那一圈格子，
+// 站的地方离每个炉灶都至少隔一格，免得点着第二个炉灶后被围住走不出去
+const COLD_STOVE = [6811, 201, 6393], PAN_STOVE = [6809, 201, 6397], SKILLET = [6809, 202, 6397], COLD_SKILLET = [6811, 201, 6396];
+const COLONY = [6792, 201, 6394], YOUNG_COLONY = [6794, 201, 6394], CABINET = [6792, 201, 6398], BASKET = [6794, 201, 6398];
+// 稻米下半截在平台这一层（四周是平台的石头，水流不出去），下面垫一格泥土，稻穗在上面一格
+const CABBAGE = [6791, 201, 6409], ONION = [6793, 201, 6409], RICE = [6795, 200, 6409], PANICLES = [6795, 201, 6409];
 const AT_BOARD = [6800.5, 201, 6402.5], AT_FEASTS = [6805.5, 201, 6402.5], AT_PIES = [6804.5, 201, 6406.5], AT_POT = [6798.5, 201, 6404.5];
+const AT_STOVES = [6809.5, 201, 6394.5], AT_SHED = [6793.5, 201, 6396.5], AT_CROPS = [6793.5, 201, 6407.5];
 let forced = false, tickSpeed;
 try {
   const h = await hello();
-  check('服务端装了农夫乐事附属模组：五个交互、厨锅工作站、插件说明都在 hello 里', [PLACE, CUT, TAKE, SERVE, SLICE].every(id => h.interactions?.includes(id)) &&
+  check('服务端装了农夫乐事附属模组：十个交互、厨锅工作站、插件说明都在 hello 里', INTERACTIONS.every(id => h.interactions?.includes(id)) &&
     h.workstations?.includes(`${FD}:cooking_pot`) && h.hints?.some(x => x.id === `${FD}:hint`), { interactions: h.interactions, workstations: h.workstations, hints: h.hints?.map(x => x.id) });
   check('服务端声明 produce-item、tend-crops、machine-status、use-item-on-block', ['produce-item', 'tend-crops', 'machine-status', 'use-item-on-block'].every(c => h.capabilities.includes(c)), h.capabilities);
   client = await connect(path.join(dir, 'runtime'));
   const tools = Object.fromEntries((await client.listTools()).tools.map(t => [t.name, t]));
-  check('MCP：interact-block 列出五个农夫乐事交互并带插件说明，produce-item 说明里有厨锅', [PLACE, CUT, TAKE, SERVE, SLICE].every(id => tools['interact-block']?.inputSchema.properties.interaction.enum.includes(id)) &&
+  check('MCP：interact-block 列出十个农夫乐事交互并带插件说明，produce-item 说明里有厨锅', INTERACTIONS.every(id => tools['interact-block']?.inputSchema.properties.interaction.enum.includes(id)) &&
     /\[farmersdelight\]/.test(tools['interact-block']?.description ?? '') && /farmersdelight:cooking_pot/.test(tools['produce-item']?.description ?? ''),
   { interact: tools['interact-block']?.description, produce: tools['produce-item']?.description });
   await quiet();
@@ -177,6 +193,13 @@ try {
   check('再放一个卷心菜：succeeded', ok(put) && count(await inventory(), `${FD}:cabbage`) === 0, put.value);
   const taken = await interact(BOARD, TAKE);
   check('空手取回：succeeded，卷心菜回到背包，砧板空了', ok(taken) && taken.value.result.summary?.item === '' && gained(taken, `${FD}:cabbage`) && count(await inventory(), `${FD}:cabbage`) === 1, taken.value);
+  // 玩家把刀摆在砧板上（carving，Bot 自己不会摆）：不能切，空手能取回
+  await fixture(`setblock ${at(BOARD)} minecraft:air`);
+  await fixture(`setblock ${at(BOARD)} ${FD}:cutting_board[facing=north]{Inventory:{Items:[{Slot:0,id:"${FD}:iron_knife",count:1}],Size:1},IsItemCarved:1b}`);
+  const carved = await interact(BOARD, CUT, `${FD}:iron_knife`);
+  check('砧板上摆着刀：拿刀切被拒绝，说是摆着的工具', codeOf(carved) === 'INTERACTION_NOT_READY' && /shows a tool/.test(JSON.stringify(carved.value)), carved.value);
+  const knife = await interact(BOARD, TAKE);
+  check('空手取回摆着的刀：succeeded，背包里多了一把铁刀，砧板空了', ok(knife) && gained(knife, `${FD}:iron_knife`) && knife.value.result.summary?.item === '' && count(await inventory(), `${FD}:iron_knife`) === 2, knife.value);
 
   // 2. 宴席
   await stand(AT_FEASTS);
@@ -267,8 +290,104 @@ try {
   const waited = await settle(await tool('produce-item', { item: 'minecraft:mushroom_stew', count: 1, wait: true }));
   inv = await inventory();
   check('wait:true：站着等，做好就取，拿到 1 份蘑菇煲，碗用掉', ok(waited) && waited.value.result?.collected === 1 && count(inv, 'minecraft:mushroom_stew') === 1 && count(inv, 'minecraft:bowl') === 0, waited.value);
+  // 近的那口锅里有一份别的菜等着盛：不碰它，用远一点那口
+  await fixture(`setblock ${POT2[0]} ${Y} ${POT2[2]} minecraft:magma_block`);
+  await fixture(`setblock ${at(POT2)} ${FD}:cooking_pot`);
+  await fixture(`setblock ${at(POT)} minecraft:air`);
+  await fixture(`setblock ${at(POT)} ${FD}:cooking_pot{Inventory:{Items:[{Slot:6,id:"${FD}:vegetable_soup",count:1}],Size:9},Container:{id:"minecraft:bowl",count:1}}`);
+  await stand(AT_POT);
+  for (const item of ['minecraft:brown_mushroom', 'minecraft:red_mushroom', 'minecraft:bowl']) await fixture(`give Claude ${item} 1`);
+  const other = await settle(await tool('produce-item', { item: 'minecraft:mushroom_stew', count: 1 }));
+  const busy = await command(`data get block ${at(POT)} Inventory.Items`);
+  report.facts.switchedPot = { receipt: other.value, busyPot: busy };
+  check('近的锅里有别的菜等着盛：不碰它，换另一口锅放好就走', ok(other) && other.value.result?.cooking === true && other.value.result?.station?.x === POT2[0] && other.value.result?.station?.z === POT2[2] &&
+    /vegetable_soup/.test(busy) && !/mushroom/.test(busy), other.value);
 
-  // 6. 关掉「给 AI 用」：新的运行端带 --disabled-plugins，服务端模组照旧
+  // 6. 炉灶和平底锅：炉灶只点火（给上面的锅加热）；平底锅烤好的东西掉在旁边，到时间回来捡
+  await fixture('clear Claude');
+  await fixture(`setblock ${at(COLD_STOVE)} ${FD}:stove[facing=south,lit=false]`);
+  await fixture(`setblock ${at(PAN_STOVE)} ${FD}:stove[facing=south,lit=true]`);
+  await fixture(`setblock ${at(SKILLET)} ${FD}:skillet[facing=south]`);
+  await fixture(`setblock ${at(COLD_SKILLET)} ${FD}:skillet[facing=south]`);
+  await stand(AT_STOVES);
+  await hotbar(1, 'minecraft:potato', 3); await hotbar(2, 'minecraft:flint_and_steel'); await hotbar(3, 'minecraft:stick');
+  const light = await interact(COLD_STOVE, STOVE_LIGHT, 'minecraft:flint_and_steel');
+  check('打火石点炉灶：succeeded，炉灶点着了，打火石还在', ok(light) && light.value.result.summary?.lit === true && await isBlock(COLD_STOVE, `${FD}:stove[lit=true]`) && count(await inventory(), 'minecraft:flint_and_steel') === 1, light.value);
+  const relight = await interact(COLD_STOVE, STOVE_LIGHT, 'minecraft:flint_and_steel');
+  check('再点一次：INTERACTION_NOT_READY（已经点着）', codeOf(relight) === 'INTERACTION_NOT_READY' && /already lit/.test(JSON.stringify(relight.value)), relight.value);
+  const stickPan = await interact(SKILLET, SKILLET_ADD, 'minecraft:stick');
+  check('木棍放平底锅：INTERACTION_NOT_READY（没有营火配方）', codeOf(stickPan) === 'INTERACTION_NOT_READY' && /campfire recipe/.test(JSON.stringify(stickPan.value)), stickPan.value);
+  const coldPan = await interact(COLD_SKILLET, SKILLET_ADD, 'minecraft:potato');
+  check('下面没热源的平底锅：INTERACTION_NOT_READY，说没热源，土豆没少', codeOf(coldPan) === 'INTERACTION_NOT_READY' && /No heat/.test(JSON.stringify(coldPan.value)) && count(await inventory(), 'minecraft:potato') === 3, coldPan.value);
+  const pan = await interact(SKILLET, SKILLET_ADD, 'minecraft:potato');
+  check('炉灶上的平底锅放进整组 3 个土豆：succeeded，用掉 3 个，约 18 秒', ok(pan) && pan.value.result.consumedCount === 3 && pan.value.result.summary?.count === 3 && pan.value.result.summary?.readyInSeconds === 18 &&
+    count(await inventory(), 'minecraft:potato') === 0, pan.value);
+  const back = await interact(SKILLET, SKILLET_TAKE);
+  const potatoes = count(await inventory(), 'minecraft:potato');
+  check('空手取回平底锅里的土豆：succeeded，土豆回到背包，锅空了', ok(back) && gained(back, 'minecraft:potato') && back.value.result.summary?.item === '' && potatoes >= 2, back.value);
+  const panAgain = await interact(SKILLET, SKILLET_ADD, 'minecraft:potato');
+  const panStarted = Date.now();
+  check('再放回去：succeeded', ok(panAgain) && count(await inventory(), 'minecraft:potato') === 0, panAgain.value);
+  report.facts.skilletPotatoes = potatoes;
+
+  // 7. 蘑菇菌落（下面是菌丝），8. 橱柜和篮子：等炉灶和平底锅的时候做
+  await fixture(`setblock ${COLONY[0]} ${Y} ${COLONY[2]} minecraft:mycelium`);
+  await fixture(`setblock ${YOUNG_COLONY[0]} ${Y} ${YOUNG_COLONY[2]} minecraft:mycelium`);
+  await fixture(`setblock ${at(COLONY)} ${FD}:brown_mushroom_colony[age=3]`);
+  await fixture(`setblock ${at(YOUNG_COLONY)} ${FD}:brown_mushroom_colony[age=0]`);
+  await fixture(`setblock ${at(CABINET)} ${FD}:oak_cabinet[facing=south]{Items:[{Slot:0b,id:"minecraft:apple",count:3}]}`);
+  await fixture(`setblock ${at(BASKET)} ${FD}:basket[facing=up]{Items:[{Slot:4b,id:"minecraft:carrot",count:4}]}`);
+  await stand(AT_SHED);
+  await hotbar(4, 'minecraft:shears');
+  const sheared = await interact(COLONY, SHEAR, 'minecraft:shears');
+  check('剪刀剪蘑菇菌落：succeeded，掉出一个棕色蘑菇，菌落 3→2', ok(sheared) && gained(sheared, 'minecraft:brown_mushroom') && sheared.value.result.summary?.age === 2 &&
+    await isBlock(COLONY, `${FD}:brown_mushroom_colony[age=2]`), sheared.value);
+  const young = await interact(YOUNG_COLONY, SHEAR, 'minecraft:shears');
+  check('还没长的菌落：INTERACTION_NOT_READY', codeOf(young) === 'INTERACTION_NOT_READY' && await isBlock(YOUNG_COLONY, `${FD}:brown_mushroom_colony[age=0]`), young.value);
+  const mushroom = await pickUp('minecraft:brown_mushroom', 1);
+  check('捡回剪下的蘑菇', mushroom === 1, { mushroom });
+  await stand(AT_SHED);
+  const found = (await tool('discover-containers', { radius: 6, maxResults: 16 })).value;
+  const refOf = (pos, id) => found.candidates?.find(c => c.position?.x === pos[0] && c.position?.z === pos[2] && c.id === id)?.containerRef;
+  const cabinetRef = refOf(CABINET, `${FD}:oak_cabinet`), basketRef = refOf(BASKET, `${FD}:basket`);
+  check('discover-containers 找到橡木橱柜和篮子', !!cabinetRef && !!basketRef, found);
+  const cabinetList = await settle(await tool('container-list', { containerRef: cabinetRef }));
+  check('container-list 橱柜：3 个苹果', ok(cabinetList) && /minecraft:apple/.test(JSON.stringify(cabinetList.value)), cabinetList.value);
+  const apples = await settle(await tool('container-withdraw', { containerRef: cabinetRef, item: 'minecraft:apple', count: 2 }));
+  check('container-withdraw 从橱柜取 2 个苹果', ok(apples) && count(await inventory(), 'minecraft:apple') === 2, apples.value);
+  const carrots = await settle(await tool('container-withdraw', { containerRef: basketRef, item: 'minecraft:carrot', count: 4 }));
+  check('container-withdraw 从篮子取 4 根胡萝卜', ok(carrots) && count(await inventory(), 'minecraft:carrot') === 4, carrots.value);
+
+  // 回到炉灶旁：平底锅每个 6 秒，烤好的从锅边弹出来落在地上
+  await stand(AT_STOVES);
+  await wait(Math.max(0, panStarted + potatoes * 6000 + 2000 - Date.now()));
+  report.facts.cookedDrops = await command(`execute as @e[type=item,x=${SKILLET[0]},y=201,z=${SKILLET[2]},distance=..5] run data get entity @s Pos`);
+  const baked = await pickUp('minecraft:baked_potato', potatoes);
+  check(`平底锅烤好 ${potatoes} 个土豆，都捡回来了（从炉灶旁一圈外面捡）`, baked >= potatoes, { baked });
+
+  // 9. 卷心菜、洋葱（耕地上）和稻米（下半截在水里，上面是稻穗）
+  await fixture('clear Claude');
+  for (const pos of [CABBAGE, ONION]) await fixture(`setblock ${pos[0]} ${Y} ${pos[2]} minecraft:farmland[moisture=7]`);
+  await fixture(`setblock ${at(CABBAGE)} ${FD}:cabbages[age=7]`);
+  await fixture(`setblock ${at(ONION)} ${FD}:onions[age=7]`);
+  await fixture(`setblock ${RICE[0]} ${Y - 1} ${RICE[2]} minecraft:dirt`);
+  await fixture(`setblock ${at(RICE)} ${FD}:rice[age=3,supporting=true]`);
+  await fixture(`setblock ${at(PANICLES)} ${FD}:rice_panicles[age=3]`);
+  await stand(AT_CROPS);
+  const field = { x: 6793, y: 201, z: 6409 };
+  const cropSurvey = await settle(await tool('tend-crops', { survey: true, center: field, radius: 2 }));
+  const seen = cropSurvey.value.result?.crops ?? {};
+  check('survey：熟的卷心菜、洋葱、稻穗各 1，稻米下半截不算作物', seen[`${FD}:cabbages`]?.ripe === 1 && seen[`${FD}:onions`]?.ripe === 1 && seen[`${FD}:rice_panicles`]?.ripe === 1 && !seen[`${FD}:rice`], cropSurvey.value.result);
+  const harvest = await settle(await tool('tend-crops', { center: field, radius: 2 }));
+  report.facts.cropHarvest = harvest.value;
+  inv = await inventory();
+  const got = harvest.value.result?.harvested ?? {};
+  check('tend-crops 收了卷心菜、洋葱、稻穗，捡到收成', ok(harvest) && got[`${FD}:cabbages`] === 1 && got[`${FD}:onions`] === 1 && got[`${FD}:rice_panicles`] === 1 &&
+    count(inv, `${FD}:cabbage`) >= 1 && count(inv, `${FD}:rice_panicle`) >= 1, { result: harvest.value.result, inventory: inv.filter(s => s.count > 0).map(s => `${s.id}×${s.count}`) });
+  check('卷心菜和洋葱补种回 0 龄，稻米下半截还在、稻穗没了（下半截会再长稻穗）', await isBlock(CABBAGE, `${FD}:cabbages[age=0]`) && await isBlock(ONION, `${FD}:onions[age=0]`) &&
+    await isBlock(RICE, `${FD}:rice`) && await isBlock(PANICLES, 'minecraft:air'), {});
+
+  // 10. 关掉「给 AI 用」：新的运行端带 --disabled-plugins，服务端模组照旧
   await client.close(); client = undefined; await wait(1000);
   client = await connect(path.join(dir, 'runtime-off'), ['--disabled-plugins', 'farmers_delight', '--compat-file', path.join(root, 'compat.json')]);
   await quiet();
@@ -288,7 +407,7 @@ try {
   try { await client?.close(); } catch {}
   // 平台要拆掉：先回到平坦世界的地面，免得摔下去
   try { await command('tp Claude 6801.5 -60 6390.5'); await wait(500); } catch {}
-  try { await command(`fill ${X0} ${Y} ${Z0} ${X1} ${Y + 5} ${Z1} minecraft:air`); report.cleanup.push({ cleared: `${X0} ${Y} ${Z0} ${X1} ${Y + 5} ${Z1}` }); } catch (error) { report.cleanup.push({ clearFailed: true, error: redact(error.message) }); }
+  try { await command(`fill ${X0} ${Y - 1} ${Z0} ${X1} ${Y + 5} ${Z1} minecraft:air`); report.cleanup.push({ cleared: `${X0} ${Y - 1} ${Z0} ${X1} ${Y + 5} ${Z1}` }); } catch (error) { report.cleanup.push({ clearFailed: true, error: redact(error.message) }); }
   try { await command(`kill @e[type=item,x=6801,y=201,z=6401,distance=..20]`); } catch {}
   try { await command('clear Claude'); report.cleanup.push({ cleared: 'Claude inventory' }); } catch {}
   if (tickSpeed) { try { await command('gamerule randomTickSpeed ' + tickSpeed); report.cleanup.push({ randomTickSpeed: tickSpeed }); } catch {} }

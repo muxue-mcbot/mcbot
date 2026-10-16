@@ -8,8 +8,10 @@ import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Set;
 import net.minecraft.core.BlockPos;
+import net.minecraft.core.Holder;
 import net.minecraft.core.registries.BuiltInRegistries;
 import net.minecraft.core.registries.Registries;
+import net.minecraft.nbt.CompoundTag;
 import net.minecraft.resources.ResourceLocation;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.server.level.ServerPlayer;
@@ -20,10 +22,13 @@ import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.item.crafting.Ingredient;
 import net.minecraft.world.item.crafting.RecipeHolder;
 import net.minecraft.world.item.crafting.RecipeType;
+import net.minecraft.world.item.crafting.SingleRecipeInput;
 import net.minecraft.world.level.Level;
 import net.minecraft.world.level.block.Block;
 import net.minecraft.world.level.block.entity.BlockEntity;
 import net.minecraft.world.level.block.state.BlockState;
+import net.minecraft.world.level.block.state.properties.BlockStateProperties;
+import net.minecraft.world.level.block.state.properties.BooleanProperty;
 import net.minecraft.world.level.block.state.properties.IntegerProperty;
 import net.minecraft.world.level.block.state.properties.Property;
 
@@ -88,14 +93,16 @@ final class FdAccess {
 
     // ---------- cutting board ----------
 
-    /** The board's block entity of the verified class, or an exception. */
-    static BlockEntity board(ServerLevel level, BlockPos position) {
+    /** The block entity of the verified class behind the verified block, or an exception. */
+    private static BlockEntity entity(ServerLevel level, BlockPos position, String blockId, String blockClass, String entityClass) {
         BlockState state = level.getBlockState(position);
-        if (!is(state, CUTTING_BOARD_ID, CUTTING_BOARD_CLASS)) throw new IllegalStateException("not a Farmer's Delight cutting board");
+        if (!is(state, blockId, blockClass)) throw new IllegalStateException("not a Farmer's Delight " + blockId);
         BlockEntity entity = level.getChunkAt(position).getBlockEntity(position);
-        if (entity == null || !CUTTING_BOARD_ENTITY.equals(entity.getClass().getName())) throw new IllegalStateException("cutting board block entity missing or changed");
+        if (entity == null || !entityClass.equals(entity.getClass().getName())) throw new IllegalStateException(blockId + " block entity missing or changed");
         return entity;
     }
+
+    static BlockEntity board(ServerLevel level, BlockPos position) { return entity(level, position, CUTTING_BOARD_ID, CUTTING_BOARD_CLASS, CUTTING_BOARD_ENTITY); }
 
     static ItemStack stored(BlockEntity board) { return (ItemStack) call(method(board.getClass(), "getStoredItem"), board); }
     static boolean carving(BlockEntity board) { return (boolean) call(method(board.getClass(), "isItemCarvingBoard"), board); }
@@ -177,5 +184,64 @@ final class FdAccess {
         int max = (int) call(method(block.getClass(), "getMaxBites"), block);
         ItemStack slice = (ItemStack) call(method(block.getClass(), "getPieSliceItem"), block);
         return FdRules.pie(id(block), state.getValue(intProperty(state, "bites")), max, id(slice));
+    }
+
+    // ---------- stove and skillet ----------
+
+    static final String STOVE_ID = "farmersdelight:stove", STOVE_CLASS = BLOCKS + "StoveBlock", STOVE_ENTITY = BLOCKS + "entity.StoveBlockEntity";
+    static final String SKILLET_ID = "farmersdelight:skillet", SKILLET_CLASS = BLOCKS + "SkilletBlock", SKILLET_ENTITY = BLOCKS + "entity.SkilletBlockEntity";
+
+    /** Whether the server has a campfire recipe for this stack: what a skillet cooks (SkilletBlockEntity looks it up the same way). */
+    static boolean cooksOnFire(Level level, ItemStack stack) {
+        return !stack.isEmpty() && level.getRecipeManager().getRecipeFor(RecipeType.CAMPFIRE_COOKING, new SingleRecipeInput(stack), level).isPresent();
+    }
+
+    private static boolean flag(BlockState state, BooleanProperty property) {
+        if (!state.hasProperty(property)) throw changed("block property " + property.getName(), null);
+        return state.getValue(property);
+    }
+
+    /** Stove summary: whether it is lit. */
+    static JsonObject stoveSummary(ServerLevel level, BlockPos position) {
+        entity(level, position, STOVE_ID, STOVE_CLASS, STOVE_ENTITY);
+        return FdRules.stove(flag(level.getBlockState(position), BlockStateProperties.LIT));
+    }
+
+    /** Skillet summary: the stack in it, heat below, under water, and when the last piece is done. */
+    static JsonObject skilletSummary(ServerLevel level, BlockPos position) {
+        BlockEntity skillet = entity(level, position, SKILLET_ID, SKILLET_CLASS, SKILLET_ENTITY);
+        ItemStack stored = (ItemStack) call(method(skillet.getClass(), "getStoredStack"), skillet);
+        boolean heated = (boolean) call(method(skillet.getClass(), "isHeated"), skillet);
+        CompoundTag saved = skillet.saveWithoutMetadata(level.registryAccess());
+        return FdRules.skillet(id(stored), stored.getCount(), heated, flag(level.getBlockState(position), BlockStateProperties.WATERLOGGED),
+            saved.getInt("CookTime"), saved.getInt("CookTimeTotal"));
+    }
+
+    // ---------- mushroom colonies ----------
+
+    static final String COLONY_CLASS = BLOCKS + "MushroomColonyBlock";
+
+    static boolean colony(BlockState state) {
+        return id(state.getBlock()).startsWith(MOD + ":") && COLONY_CLASS.equals(state.getBlock().getClass().getName());
+    }
+
+    /** Colony summary; anything else reads as an empty colony. The mushroom is what one cut drops (its clone item). */
+    static JsonObject colonySummary(ServerLevel level, BlockPos position) {
+        BlockState state = level.getBlockState(position);
+        if (!colony(state)) return FdRules.colony("", 0, "");
+        Object mushroom;
+        try { mushroom = state.getBlock().getClass().getField("mushroomType").get(state.getBlock()); } catch (ReflectiveOperationException missing) { throw changed("MushroomColonyBlock.mushroomType", missing); }
+        if (!(mushroom instanceof Holder<?> holder) || !(holder.value() instanceof Item item)) throw changed("MushroomColonyBlock.mushroomType", null);
+        return FdRules.colony(id(state.getBlock()), state.getValue(intProperty(state, "age")), id(item));
+    }
+
+    // ---------- cabinets and baskets ----------
+
+    static final String CABINET_CLASS = BLOCKS + "CabinetBlock", CABINET_ENTITY = BLOCKS + "entity.CabinetBlockEntity";
+    static final String BASKET_ID = "farmersdelight:basket", BASKET_CLASS = BLOCKS + "BasketBlock", BASKET_ENTITY = BLOCKS + "entity.BasketBlockEntity";
+
+    /** Every wooden cabinet is the one CabinetBlock class under its own id. */
+    static boolean cabinet(BlockState state) {
+        return id(state.getBlock()).startsWith(MOD + ":") && CABINET_CLASS.equals(state.getBlock().getClass().getName());
     }
 }

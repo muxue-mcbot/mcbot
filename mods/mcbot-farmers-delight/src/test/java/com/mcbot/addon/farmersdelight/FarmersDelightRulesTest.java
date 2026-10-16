@@ -17,8 +17,11 @@ final class FarmersDelightRulesTest {
         pies();
         tomatoes();
         cookingPot();
+        stove();
+        skillet();
+        colonies();
         check(McbotFarmersDelight.HINT.length() <= com.mcbot.servercontrol.api.McbotApi.HINT_MAX, "the hint fits (registerHint refuses longer text at startup)");
-        System.out.println("FarmersDelightRulesTest: " + checks + " checks passed (cutting board, feasts, pies, tomatoes, cooking pot; no Minecraft launch)");
+        System.out.println("FarmersDelightRulesTest: " + checks + " checks passed (cutting board, feasts, pies, tomatoes, cooking pot, stove, skillet, mushroom colonies; no Minecraft launch)");
     }
 
     private static void board() {
@@ -109,5 +112,43 @@ final class FarmersDelightRulesTest {
         check(FdRules.potTicksLeft(3, 50, 200, true) == 150 + 2 * 200, "rest of this meal plus two more");
         check(FdRules.potTicksLeft(0, 0, 200, false) == 0, "nothing in: nothing left");
         check(FdRules.potTicksLeft(2, 0, 200, false) == -1 && FdRules.potTicksLeft(2, 0, 0, true) == -1, "not cooking, or no cook time yet: unknown");
+    }
+
+    private static void stove() {
+        JsonObject lit = FdRules.stove(true), cold = FdRules.stove(false);
+        check(FdRules.lightRefusal(cold) == null && FdRules.lightRefusal(lit).contains("already lit"), "only an unlit stove is lit");
+        check(FdRules.STOVE_LIGHT.properties().equals(Set.of("lit")) && FdRules.STOVE_LIGHT.heldDamageAllowed() && FdRules.STOVE_LIGHT.maxConsumed() == 1 && FdRules.STOVE_LIGHT.gainedItems().isEmpty(),
+            "flint and steel wears, a fire charge is used, nothing gained");
+        check(FdRules.lit(cold, lit) && !FdRules.lit(lit, lit) && !FdRules.lit(cold, cold), "lit means unlit before, lit after");
+        check(FdRules.seconds(450, true) == 23 && FdRules.seconds(450, false) == -1 && FdRules.seconds(0, false) == 0, "ticks round up to seconds; no heat: never; nothing: 0");
+    }
+
+    private static void skillet() {
+        JsonObject empty = FdRules.skillet("", 0, true, false, 0, 0);
+        JsonObject beef = FdRules.skillet("minecraft:beef", 3, true, false, 20, 120);
+        JsonObject coldBeef = FdRules.skillet("minecraft:beef", 3, false, false, 20, 120);
+        check(beef.get("readyInSeconds").getAsInt() == (100 + 2 * 120) / 20 && beef.get("count").getAsInt() == 3, "the piece in progress plus two more");
+        check(coldBeef.get("readyInSeconds").getAsInt() == -1 && empty.get("readyInSeconds").getAsInt() == 0 && empty.get("count").getAsInt() == 0, "no heat: never; empty: nothing");
+        check(FdRules.skilletAddRefusal(empty, true) == null, "a heated empty skillet takes food");
+        check(FdRules.skilletAddRefusal(empty, false).contains("campfire recipe"), "only food with a campfire recipe");
+        check(FdRules.skilletAddRefusal(beef, true).contains("skillet/take"), "one stack at a time");
+        check(FdRules.skilletAddRefusal(FdRules.skillet("", 0, false, false, 0, 0), true).contains("No heat"), "a cold skillet is refused");
+        check(FdRules.skilletAddRefusal(FdRules.skillet("", 0, true, true, 0, 0), true).contains("under water"), "a waterlogged skillet is refused");
+        check(FdRules.SKILLET_ADD.minConsumed() == 1 && FdRules.SKILLET_ADD.maxConsumed() == 64 && FdRules.SKILLET_ADD.gainedItems().isEmpty(), "the whole held stack goes in");
+        check(FdRules.skilletLoaded(empty, beef) && !FdRules.skilletLoaded(beef, beef), "loaded means empty before");
+        check(FdRules.skilletTakeRefusal(empty) != null && FdRules.skilletTakeRefusal(beef) == null, "taking needs something in it");
+        check(FdRules.skilletTake(beef).gainedItems().equals(Set.of("minecraft:beef")) && FdRules.skilletTake(beef).maxConsumed() == 0, "taking gives the stack back");
+        check(FdRules.skilletEmptied(beef, empty) && !FdRules.skilletEmptied(beef, beef), "taken means empty after");
+    }
+
+    private static void colonies() {
+        JsonObject grown = FdRules.colony("farmersdelight:brown_mushroom_colony", 3, "minecraft:brown_mushroom");
+        JsonObject young = FdRules.colony("farmersdelight:brown_mushroom_colony", 0, "minecraft:brown_mushroom");
+        check(FdRules.colonyRefusal(grown) == null && FdRules.colonyRefusal(young).contains("grow"), "only a grown colony is cut");
+        check(FdRules.colonyRefusal(FdRules.colony("", 0, "")).contains("Not a"), "a missing colony is refused");
+        Expected cut = FdRules.colonyHarvest(grown);
+        check(cut.gainedItems().equals(Set.of("minecraft:brown_mushroom")) && cut.properties().equals(Set.of("age")) && cut.heldDamageAllowed() && cut.maxConsumed() == 1 && !cut.removesBlock(),
+            "one mushroom drops, the colony stays, the shears wear");
+        check(FdRules.colonyHarvested(grown, FdRules.colony("farmersdelight:brown_mushroom_colony", 2, "minecraft:brown_mushroom")) && !FdRules.colonyHarvested(grown, grown), "one age less");
     }
 }
