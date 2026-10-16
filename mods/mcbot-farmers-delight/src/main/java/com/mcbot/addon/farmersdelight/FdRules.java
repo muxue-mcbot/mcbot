@@ -141,18 +141,39 @@ final class FdRules {
         return after.get("bites").getAsInt() == b + 1;
     }
 
-    // ---------- stove: lit ----------
+    // ---------- stove: lit, blocked, items, free, readyInSeconds ----------
 
-    /**
-     * Only lighting is offered: food grilled on top of a stove pops out onto the stove, and MCBOT's walking keeps off
-     * the cells next to a lit stove, so the bot could not pick it up again. A lit stove heats a pot or a skillet on it.
-     */
-    static final Set<String> STOVE_FIELDS = Set.of("lit");
+    static final Set<String> STOVE_FIELDS = Set.of("lit", "blocked", "items", "free", "readyInSeconds");
 
-    static JsonObject stove(boolean lit) {
+    static JsonObject stove(boolean lit, boolean blocked, List<String> items, int slots, int ticksLeft) {
         JsonObject o = new JsonObject();
         o.addProperty("lit", lit);
+        o.addProperty("blocked", blocked);
+        o.add("items", array(items));
+        o.addProperty("free", slots - items.size());
+        o.addProperty("readyInSeconds", seconds(ticksLeft, lit && !blocked));
         return o;
+    }
+
+    private static int free(JsonObject s) { return s.get("free").getAsInt(); }
+
+    /**
+     * StoveBlock#useItemOn puts one piece on per click when a slot is free, nothing sits on top and it has a campfire
+     * recipe; it cooks only while lit. Done pieces pop out on top of the stove.
+     */
+    static String stoveAddRefusal(JsonObject s, boolean heldCooks) {
+        if (!heldCooks) return "The held item does not cook on a stove (it has no campfire recipe)";
+        if (!s.get("lit").getAsBoolean()) return "The stove is not lit; light it first (stove/light holding flint and steel or a fire charge)";
+        if (s.get("blocked").getAsBoolean()) return "Something on top of the stove blocks it; clear the block above first";
+        if (free(s) <= 0) return "The stove is full; wait for the food on it to cook and pop out";
+        return null;
+    }
+
+    /** One piece leaves the hand and lies on the stove. */
+    static final Expected STOVE_ADD = new Expected(1, 1, false, Set.of(), STOVE_FIELDS, Set.of(), false);
+
+    static boolean stoveAdded(JsonObject before, JsonObject after) {
+        return free(after) == free(before) - 1 && after.getAsJsonArray("items").size() == before.getAsJsonArray("items").size() + 1;
     }
 
     static String lightRefusal(JsonObject s) {
@@ -163,12 +184,12 @@ final class FdRules {
     static final Expected STOVE_LIGHT = new Expected(0, 1, true, Set.of("lit"), STOVE_FIELDS, Set.of(), false);
 
     static boolean lit(JsonObject before, JsonObject after) {
-        return !before.get("lit").getAsBoolean() && after.get("lit").getAsBoolean();
+        return !before.get("lit").getAsBoolean() && after.get("lit").getAsBoolean() && free(after) == free(before);
     }
 
     /**
-     * Whole seconds for the ticks still to go, rounded up; -1 when nothing will cook (no heat). Food in a skillet cooks
-     * by itself once it is in, so this is when the last piece pops out.
+     * Whole seconds for the ticks still to go, rounded up; -1 when nothing will cook (no heat). Food on a stove or in a
+     * skillet cooks by itself once it is in, so this is when the last piece pops out.
      */
     static int seconds(int ticks, boolean heated) {
         if (ticks <= 0) return 0;

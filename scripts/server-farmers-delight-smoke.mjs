@@ -7,8 +7,8 @@
 //   4. 番茄：tend-crops survey 认出熟番茄和番茄苗；收的时候右键摘、藤留着回到 0 龄、番茄苗不动；
 //   5. 厨锅：缺料报 MISSING_MATERIALS（碗单独一行）；没热源报 STATION_NOT_READY；手里拿着碗也能放好就走；来早了 STILL_COOKING；
 //      到时间 machine 事件说做好了；回去取出；wait:true 站着等做好就取；近的锅里有别的菜等着盛就换一口；
-//   6. 炉灶和平底锅：打火石点着炉灶、再点被拒绝；木棍、没热源的平底锅被拒绝；整组土豆放进炉灶上的平底锅、空手取回、再放；
-//      到时间捡回烤好的土豆；
+//   6. 炉灶和平底锅：木棍被拒绝；点着的炉灶放一块牛肉；没点的被拒绝、打火石点着、再点被拒绝；没热源的平底锅被拒绝；
+//      整组土豆放进炉灶上的平底锅、空手取回、再放；到时间走到炉灶旁边捡回牛排和土豆；两团火中间的掉落不去捡；
 //   7. 蘑菇菌落：剪刀剪一个、还没长的被拒绝；
 //   8. 橱柜和篮子：discover-containers 找到、container-list 列出、container-withdraw 取出；
 //   9. 卷心菜、洋葱、稻米：tend-crops 收卷心菜和洋葱并补种，稻米只收上半截稻穗、下半截留着；
@@ -48,7 +48,7 @@ const redact = text => { let value = String(text); for (const secret of secrets)
 const report = { started: new Date().toISOString(), serverDir, checks: [], facts: {}, calls: [], cleanup: [],
   limitations: ['没有使用真实模型和测试玩家。', '只测农夫乐事 1.2.9。',
     '没测（只有离线测试）：放进去不开始做（RECIPE_REFUSED）、区块卸载和换维度后的 machine 事件、泡在水里的平底锅。',
-    '不支持也没测：在炉灶上直接烤（Bot 不进点着的炉灶旁边那一圈，烤好的捡不到）、在水里种稻米（tend-crops 不种）、篮子自己吸东西；平底锅烤好不发 machine 事件（模型按 readyInSeconds 回来捡）。'] };
+    '不支持也没测：在水里种稻米（tend-crops 不种）、篮子自己吸东西；炉灶和平底锅烤好不发 machine 事件（模型按 readyInSeconds 回来捡）；岩浆旁边的掉落（和火一样不进，只测了火）。'] };
 const save = () => fs.writeFile(path.join(dir, 'report.json'), redact(JSON.stringify(report, null, 2)) + '\n');
 function check(name, passed, detail) { report.checks.push({ name, passed: !!passed, ...(detail === undefined ? {} : { detail }) }); assert(passed, name + (detail ? ' ' + redact(JSON.stringify(detail)).slice(0, 2500) : '')); console.log('PASS ' + name); }
 const command = async text => (await rcon([text], { serverDir, timeoutMs: 5000 }))[0];
@@ -129,20 +129,22 @@ async function pickUp(item, total) {
 
 const FD = 'farmersdelight';
 const PLACE = `${FD}:cutting_board/place`, CUT = `${FD}:cutting_board/cut`, TAKE = `${FD}:cutting_board/take`, SERVE = `${FD}:feast/serve`, SLICE = `${FD}:pie/slice`;
-const STOVE_LIGHT = `${FD}:stove/light`, SKILLET_ADD = `${FD}:skillet/add`, SKILLET_TAKE = `${FD}:skillet/take`, SHEAR = `${FD}:mushroom_colony/harvest`;
-const INTERACTIONS = [PLACE, CUT, TAKE, SERVE, SLICE, STOVE_LIGHT, SKILLET_ADD, SKILLET_TAKE, SHEAR];
+const STOVE_ADD = `${FD}:stove/add`, STOVE_LIGHT = `${FD}:stove/light`, SKILLET_ADD = `${FD}:skillet/add`, SKILLET_TAKE = `${FD}:skillet/take`, SHEAR = `${FD}:mushroom_colony/harvest`;
+const INTERACTIONS = [PLACE, CUT, TAKE, SERVE, SLICE, STOVE_ADD, STOVE_LIGHT, SKILLET_ADD, SKILLET_TAKE, SHEAR];
 const [X0, X1, Z0, Z1, Y] = [6790, 6812, 6392, 6410, 200];
 const BOARD = [6800, 201, 6400], CHICKEN = [6803, 201, 6400], PUMPKIN = [6805, 201, 6400], ROLLS = [6807, 201, 6400];
 const PIE = [6803, 201, 6404], LAST_PIE = [6805, 201, 6404], TOMATO = [6800, 201, 6407], BUDDING = [6802, 201, 6407], POT = [6796, 201, 6404], POT2 = [6794, 201, 6404];
-// 平底锅照玩家常用的摆法放在点着的炉灶上。Bot 走路不进点着的炉灶（以及岩浆块、营火）旁边那一圈格子，
+// 平底锅照玩家常用的摆法放在点着的炉灶上。平常走路不进点着的炉灶（以及岩浆块、营火）旁边那一圈格子，只有捡东西时可以进；
 // 站的地方离每个炉灶都至少隔一格，免得点着第二个炉灶后被围住走不出去
-const COLD_STOVE = [6811, 201, 6393], PAN_STOVE = [6809, 201, 6397], SKILLET = [6809, 202, 6397], COLD_SKILLET = [6811, 201, 6396];
+const GRILL = [6807, 201, 6393], COLD_STOVE = [6811, 201, 6393], PAN_STOVE = [6809, 201, 6397], SKILLET = [6809, 202, 6397], COLD_SKILLET = [6811, 201, 6396];
+// 两团火（下面垫地狱岩）中间的掉落：火旁边那一圈捡东西也不进，捡不到
+const FIRE_A = [6797, 201, 6394], FIRE_B = [6799, 201, 6394], AT_FIRE = [6798.5, 201, 6397.5];
 const COLONY = [6792, 201, 6394], YOUNG_COLONY = [6794, 201, 6394], CABINET = [6792, 201, 6398], BASKET = [6794, 201, 6398];
 // 稻米下半截在平台这一层（四周是平台的石头，水流不出去），下面垫一格泥土，稻穗在上面一格
 const CABBAGE = [6791, 201, 6409], ONION = [6793, 201, 6409], RICE = [6795, 200, 6409], PANICLES = [6795, 201, 6409];
 const AT_BOARD = [6800.5, 201, 6402.5], AT_FEASTS = [6805.5, 201, 6402.5], AT_PIES = [6804.5, 201, 6406.5], AT_POT = [6798.5, 201, 6404.5];
 const AT_STOVES = [6809.5, 201, 6394.5], AT_SHED = [6793.5, 201, 6396.5], AT_CROPS = [6793.5, 201, 6407.5];
-let forced = false, tickSpeed;
+let forced = false, tickSpeed, fireTick = false;
 try {
   const h = await hello();
   check('服务端装了农夫乐事附属模组：十个交互、厨锅工作站、插件说明都在 hello 里', INTERACTIONS.every(id => h.interactions?.includes(id)) &&
@@ -303,14 +305,23 @@ try {
   check('近的锅里有别的菜等着盛：不碰它，换另一口锅放好就走', ok(other) && other.value.result?.cooking === true && other.value.result?.station?.x === POT2[0] && other.value.result?.station?.z === POT2[2] &&
     /vegetable_soup/.test(busy) && !/mushroom/.test(busy), other.value);
 
-  // 6. 炉灶和平底锅：炉灶只点火（给上面的锅加热）；平底锅烤好的东西掉在旁边，到时间回来捡
+  // 6. 炉灶和平底锅：烤好的东西留在炉灶顶上或从平底锅边弹出来，到时间回来捡
   await fixture('clear Claude');
+  await fixture(`setblock ${at(GRILL)} ${FD}:stove[facing=south,lit=true]`);
   await fixture(`setblock ${at(COLD_STOVE)} ${FD}:stove[facing=south,lit=false]`);
   await fixture(`setblock ${at(PAN_STOVE)} ${FD}:stove[facing=south,lit=true]`);
   await fixture(`setblock ${at(SKILLET)} ${FD}:skillet[facing=south]`);
   await fixture(`setblock ${at(COLD_SKILLET)} ${FD}:skillet[facing=south]`);
   await stand(AT_STOVES);
-  await hotbar(1, 'minecraft:potato', 3); await hotbar(2, 'minecraft:flint_and_steel'); await hotbar(3, 'minecraft:stick');
+  await hotbar(0, 'minecraft:beef', 2); await hotbar(1, 'minecraft:potato', 3); await hotbar(2, 'minecraft:flint_and_steel'); await hotbar(3, 'minecraft:stick');
+  const stickStove = await interact(GRILL, STOVE_ADD, 'minecraft:stick');
+  check('木棍放炉灶：INTERACTION_NOT_READY（没有营火配方）', codeOf(stickStove) === 'INTERACTION_NOT_READY' && /campfire recipe/.test(JSON.stringify(stickStove.value)), stickStove.value);
+  const grill = await interact(GRILL, STOVE_ADD, 'minecraft:beef');
+  const grillStarted = Date.now(), onStove = grill.value.result?.summary;
+  check('点着的炉灶放一块牛肉：succeeded，用掉 1 块，还空 5 格，约 30 秒', ok(grill) && grill.value.result.consumedCount === 1 && onStove?.free === 5 && onStove?.items?.[0] === 'minecraft:beef' &&
+    onStove?.readyInSeconds === 30 && count(await inventory(), 'minecraft:beef') === 1, grill.value);
+  const coldStove = await interact(COLD_STOVE, STOVE_ADD, 'minecraft:beef');
+  check('没点的炉灶：INTERACTION_NOT_READY，说先用 stove/light 点着，牛肉没少', codeOf(coldStove) === 'INTERACTION_NOT_READY' && /stove\/light/.test(JSON.stringify(coldStove.value)) && count(await inventory(), 'minecraft:beef') === 1, coldStove.value);
   const light = await interact(COLD_STOVE, STOVE_LIGHT, 'minecraft:flint_and_steel');
   check('打火石点炉灶：succeeded，炉灶点着了，打火石还在', ok(light) && light.value.result.summary?.lit === true && await isBlock(COLD_STOVE, `${FD}:stove[lit=true]`) && count(await inventory(), 'minecraft:flint_and_steel') === 1, light.value);
   const relight = await interact(COLD_STOVE, STOVE_LIGHT, 'minecraft:flint_and_steel');
@@ -358,12 +369,26 @@ try {
   const carrots = await settle(await tool('container-withdraw', { containerRef: basketRef, item: 'minecraft:carrot', count: 4 }));
   check('container-withdraw 从篮子取 4 根胡萝卜', ok(carrots) && count(await inventory(), 'minecraft:carrot') === 4, carrots.value);
 
-  // 回到炉灶旁：平底锅每个 6 秒，烤好的从锅边弹出来落在地上
+  // 回到炉灶旁：牛肉 30 秒（烤好留在炉灶顶上），平底锅每个 6 秒（从锅边弹出来落在地上）
   await stand(AT_STOVES);
-  await wait(Math.max(0, panStarted + potatoes * 6000 + 2000 - Date.now()));
-  report.facts.cookedDrops = await command(`execute as @e[type=item,x=${SKILLET[0]},y=201,z=${SKILLET[2]},distance=..5] run data get entity @s Pos`);
+  await wait(Math.max(0, grillStarted + 32000 - Date.now(), panStarted + potatoes * 6000 + 2000 - Date.now()));
+  report.facts.cookedDrops = await command(`execute as @e[type=item,x=${AT_STOVES[0]},y=201,z=${AT_STOVES[2]},distance=..6] run data get entity @s Pos`);
+  const health = (await tool('get-status', {})).value.health;
+  const beef = await pickUp('minecraft:cooked_beef', 1);
+  check('炉灶顶上烤好的牛排：走到点着的炉灶旁边捡回来了，没被烫', beef === 1 && (await tool('get-status', {})).value.health >= health, { beef, health });
+  await stand(AT_STOVES);
   const baked = await pickUp('minecraft:baked_potato', potatoes);
-  check(`平底锅烤好 ${potatoes} 个土豆，都捡回来了（从炉灶旁一圈外面捡）`, baked >= potatoes, { baked });
+  check(`平底锅烤好 ${potatoes} 个土豆，都捡回来了`, baked >= potatoes, { baked });
+  // 火旁边那一圈捡东西也不进：两团火中间的掉落捡不到，人也没事
+  await command('gamerule doFireTick false'); fireTick = true;
+  for (const pos of [FIRE_A, FIRE_B]) { await fixture(`setblock ${pos[0]} ${Y} ${pos[2]} minecraft:netherrack`); await fixture(`setblock ${at(pos)} minecraft:fire`); }
+  await stand(AT_FIRE);
+  await fixture(`summon minecraft:item ${(FIRE_A[0] + FIRE_B[0]) / 2 + 0.5} 201 ${FIRE_A[2] + 0.5} {Item:{id:"minecraft:apple",count:1},PickupDelay:0}`); await wait(1500);
+  const applesBefore = count(await inventory(), 'minecraft:apple'), hp = (await tool('get-status', {})).value.health;
+  const nearFire = await settle(await tool('collect-items', { item: 'minecraft:apple', count: 1, radius: 4 }));
+  const status = (await tool('get-status', {})).value;
+  check('两团火中间的苹果：不去捡（走不过去），没着火、没掉血', !ok(nearFire) && count(await inventory(), 'minecraft:apple') === applesBefore && status.health >= hp, { receipt: nearFire.value, health: status.health });
+  for (const pos of [FIRE_A, FIRE_B]) await fixture(`setblock ${at(pos)} minecraft:air`);
 
   // 9. 卷心菜、洋葱（耕地上）和稻米（下半截在水里，上面是稻穗）
   await fixture('clear Claude');
@@ -411,6 +436,7 @@ try {
   try { await command(`kill @e[type=item,x=6801,y=201,z=6401,distance=..20]`); } catch {}
   try { await command('clear Claude'); report.cleanup.push({ cleared: 'Claude inventory' }); } catch {}
   if (tickSpeed) { try { await command('gamerule randomTickSpeed ' + tickSpeed); report.cleanup.push({ randomTickSpeed: tickSpeed }); } catch {} }
+  if (fireTick) { try { await command('gamerule doFireTick true'); report.cleanup.push({ doFireTick: true }); } catch {} }
   if (forced) { try { await command(`forceload remove ${X0} ${Z0} ${X1} ${Z1}`); report.cleanup.push({ forceloadRemoved: true }); } catch (error) { report.cleanup.push({ forceloadRemoveFailed: true, error: redact(error.message) }); } }
   report.finished = new Date().toISOString(); await save();
   console.log(`${report.result}: ${report.checks.filter(c => c.passed).length} checks; report ${path.relative(root, dir)}/report.json`);

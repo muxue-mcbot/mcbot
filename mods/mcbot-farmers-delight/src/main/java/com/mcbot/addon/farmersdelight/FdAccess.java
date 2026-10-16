@@ -31,6 +31,7 @@ import net.minecraft.world.level.block.state.properties.BlockStateProperties;
 import net.minecraft.world.level.block.state.properties.BooleanProperty;
 import net.minecraft.world.level.block.state.properties.IntegerProperty;
 import net.minecraft.world.level.block.state.properties.Property;
+import net.neoforged.neoforge.items.IItemHandler;
 
 /**
  * Read-only reflective view of the Farmer's Delight blocks the add-on knows. Every class, method and tag name below was
@@ -191,7 +192,7 @@ final class FdAccess {
     static final String STOVE_ID = "farmersdelight:stove", STOVE_CLASS = BLOCKS + "StoveBlock", STOVE_ENTITY = BLOCKS + "entity.StoveBlockEntity";
     static final String SKILLET_ID = "farmersdelight:skillet", SKILLET_CLASS = BLOCKS + "SkilletBlock", SKILLET_ENTITY = BLOCKS + "entity.SkilletBlockEntity";
 
-    /** Whether the server has a campfire recipe for this stack: what a skillet cooks (SkilletBlockEntity looks it up the same way). */
+    /** Whether the server has a campfire recipe for this stack: what a stove or a skillet cooks (both look it up the same way). */
     static boolean cooksOnFire(Level level, ItemStack stack) {
         return !stack.isEmpty() && level.getRecipeManager().getRecipeFor(RecipeType.CAMPFIRE_COOKING, new SingleRecipeInput(stack), level).isPresent();
     }
@@ -201,10 +202,24 @@ final class FdAccess {
         return state.getValue(property);
     }
 
-    /** Stove summary: whether it is lit. */
+    /** Stove summary: lit, whether a block on top stops it, what lies on it and when the last piece is done. */
     static JsonObject stoveSummary(ServerLevel level, BlockPos position) {
-        entity(level, position, STOVE_ID, STOVE_CLASS, STOVE_ENTITY);
-        return FdRules.stove(flag(level.getBlockState(position), BlockStateProperties.LIT));
+        BlockEntity stove = entity(level, position, STOVE_ID, STOVE_CLASS, STOVE_ENTITY);
+        IItemHandler inventory = (IItemHandler) call(method(stove.getClass(), "getInventory"), stove);
+        boolean blocked = (boolean) call(method(stove.getClass(), "isStoveBlockedAbove"), stove);
+        // The cooking timers are only saved, not exposed: read them from the entity's own save data.
+        CompoundTag saved = stove.saveWithoutMetadata(level.registryAccess());
+        int[] times = saved.getIntArray("CookingTimes"), totals = saved.getIntArray("CookingTotalTimes");
+        List<String> items = new ArrayList<>();
+        int ticks = 0;
+        for (int i = 0; i < inventory.getSlots(); i++) {
+            ItemStack stack = inventory.getStackInSlot(i);
+            if (stack.isEmpty()) continue;
+            items.add(id(stack));
+            if (i >= times.length || i >= totals.length) throw changed("StoveBlockEntity cooking times", null);
+            ticks = Math.max(ticks, totals[i] - times[i]);
+        }
+        return FdRules.stove(flag(level.getBlockState(position), BlockStateProperties.LIT), blocked, items, inventory.getSlots(), ticks);
     }
 
     /** Skillet summary: the stack in it, heat below, under water, and when the last piece is done. */

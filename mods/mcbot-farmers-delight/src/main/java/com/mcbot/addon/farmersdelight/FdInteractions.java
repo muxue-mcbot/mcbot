@@ -19,8 +19,8 @@ import net.neoforged.neoforge.common.Tags;
 
 /**
  * Right-clicks on Farmer's Delight blocks, used with MCBOT's interact-block: put an ingredient on the cutting board,
- * cut it with the recipe's tool, take it back; serve a feast; slice a pie; light a stove; put food into a skillet (and
- * take it back); cut a mushroom off a colony with shears. MCBOT sends the player's own click and accepts
+ * cut it with the recipe's tool, take it back; serve a feast; slice a pie; put food on a stove (and light it) or into a
+ * skillet (and take it back); cut a mushroom off a colony with shears. MCBOT sends the player's own click and accepts
  * the result only when every observed change lies inside the envelope {@link FdRules} gives.
  */
 final class FdInteractions {
@@ -67,6 +67,9 @@ final class FdInteractions {
     private static boolean stove(BlockState state) { return FdAccess.is(state, FdAccess.STOVE_ID, FdAccess.STOVE_CLASS); }
     private static boolean skillet(BlockState state) { return FdAccess.is(state, FdAccess.SKILLET_ID, FdAccess.SKILLET_CLASS); }
 
+    static final ItemInteraction STOVE_ADD = new Step("farmersdelight:stove/add", FdInteractions::stove, false, s -> !s.isEmpty(),
+        FdAccess::stoveSummary, (s, p, pos, h) -> FdRules.stoveAddRefusal(s, FdAccess.cooksOnFire(p.serverLevel(), h)),
+        b -> FdRules.STOVE_ADD, FdRules::stoveAdded);
     static final ItemInteraction STOVE_LIGHT = new Step("farmersdelight:stove/light", FdInteractions::stove, false,
         s -> s.getItem() instanceof FlintAndSteelItem || s.getItem() instanceof FireChargeItem,
         FdAccess::stoveSummary, (s, p, pos, h) -> FdRules.lightRefusal(s), b -> FdRules.STOVE_LIGHT, FdRules::lit);
@@ -78,5 +81,5 @@ final class FdInteractions {
     static final ItemInteraction COLONY = new Step("farmersdelight:mushroom_colony/harvest", FdAccess::colony, false, s -> s.is(Tags.Items.TOOLS_SHEAR),
         FdAccess::colonySummary, (s, p, pos, h) -> FdRules.colonyRefusal(s), FdRules::colonyHarvest, FdRules::colonyHarvested);
 
-    static List<ItemInteraction> all() { return List.of(PLACE, CUT, TAKE, SERVE, SLICE, STOVE_LIGHT, SKILLET_ADD, SKILLET_TAKE, COLONY); }
+    static List<ItemInteraction> all() { return List.of(PLACE, CUT, TAKE, SERVE, SLICE, STOVE_ADD, STOVE_LIGHT, SKILLET_ADD, SKILLET_TAKE, COLONY); }
 }

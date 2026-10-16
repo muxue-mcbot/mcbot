@@ -115,12 +115,24 @@ final class FarmersDelightRulesTest {
     }
 
     private static void stove() {
-        JsonObject lit = FdRules.stove(true), cold = FdRules.stove(false);
+        JsonObject lit = FdRules.stove(true, false, List.of("minecraft:beef"), 6, 450);
+        JsonObject one = FdRules.stove(true, false, List.of("minecraft:beef", "minecraft:beef"), 6, 600);
+        JsonObject full = FdRules.stove(true, false, List.of("a", "b", "c", "d", "e", "f"), 6, 10);
+        JsonObject cold = FdRules.stove(false, false, List.of("minecraft:beef"), 6, 450);
+        JsonObject covered = FdRules.stove(true, true, List.of(), 6, 0);
+        check(lit.get("free").getAsInt() == 5 && lit.get("readyInSeconds").getAsInt() == 23, "five slots free; 450 ticks round up to 23 s");
+        check(cold.get("readyInSeconds").getAsInt() == -1 && FdRules.stove(true, false, List.of(), 6, 0).get("readyInSeconds").getAsInt() == 0, "unlit with food: never; empty: nothing to wait for");
+        check(FdRules.stoveAddRefusal(lit, true) == null, "raw food goes on a lit stove with room");
+        check(FdRules.stoveAddRefusal(lit, false).contains("campfire recipe"), "only food with a campfire recipe");
+        check(FdRules.stoveAddRefusal(cold, true).contains("stove/light"), "an unlit stove is refused, naming how to light it");
+        check(FdRules.stoveAddRefusal(covered, true).contains("block above"), "a block on top stops the stove");
+        check(FdRules.stoveAddRefusal(full, true).contains("full"), "six pieces at most");
+        check(FdRules.STOVE_ADD.minConsumed() == 1 && FdRules.STOVE_ADD.maxConsumed() == 1 && FdRules.STOVE_ADD.properties().isEmpty() && FdRules.STOVE_ADD.gainedItems().isEmpty(), "one piece per click, nothing gained");
+        check(FdRules.stoveAdded(lit, one) && !FdRules.stoveAdded(lit, lit) && !FdRules.stoveAdded(one, lit), "added means one more piece on it");
         check(FdRules.lightRefusal(cold) == null && FdRules.lightRefusal(lit).contains("already lit"), "only an unlit stove is lit");
         check(FdRules.STOVE_LIGHT.properties().equals(Set.of("lit")) && FdRules.STOVE_LIGHT.heldDamageAllowed() && FdRules.STOVE_LIGHT.maxConsumed() == 1 && FdRules.STOVE_LIGHT.gainedItems().isEmpty(),
             "flint and steel wears, a fire charge is used, nothing gained");
-        check(FdRules.lit(cold, lit) && !FdRules.lit(lit, lit) && !FdRules.lit(cold, cold), "lit means unlit before, lit after");
-        check(FdRules.seconds(450, true) == 23 && FdRules.seconds(450, false) == -1 && FdRules.seconds(0, false) == 0, "ticks round up to seconds; no heat: never; nothing: 0");
+        check(FdRules.lit(cold, FdRules.stove(true, false, List.of("minecraft:beef"), 6, 450)) && !FdRules.lit(lit, lit), "lit means unlit before, lit after, same food");
     }
 
     private static void skillet() {

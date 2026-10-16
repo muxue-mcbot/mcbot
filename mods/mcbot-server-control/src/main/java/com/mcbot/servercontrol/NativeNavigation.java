@@ -5,6 +5,8 @@ import java.util.*;
 import java.util.function.Predicate;
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.Direction;
+import net.minecraft.tags.BlockTags;
+import net.minecraft.tags.FluidTags;
 import net.minecraft.util.Mth;
 import net.minecraft.util.RandomSource;
 import net.minecraft.world.entity.EntityType;
@@ -273,10 +275,11 @@ final class NativeNavigation {
             model=drop>0?new Zombie(EntityType.ZOMBIE,body.level()){@Override public int getMaxFallDistance(){return drop;}}:new Zombie(EntityType.ZOMBIE,body.level());
             // Routes never go through water (a body already in water swims out first, swim()) or powder snow. Wooden doors are opened by hand on the way (doors()).
             model.setPathfindingMalus(PathType.WATER,-1);model.setPathfindingMalus(PathType.WATER_BORDER,8);
-            model.setPathfindingMalus(PathType.DANGER_FIRE,-1);model.setPathfindingMalus(PathType.DAMAGE_FIRE,-1);
+            // Next to something burning: never, except a pickup next to a block that only hurts when stepped on (nearHeat()).
+            model.setPathfindingMalus(PathType.DANGER_FIRE,nearHeat?HEAT_EDGE_MALUS:-1);model.setPathfindingMalus(PathType.DAMAGE_FIRE,-1);
             model.setPathfindingMalus(PathType.DANGER_POWDER_SNOW,-1);model.setPathfindingMalus(PathType.POWDER_SNOW,-1);
             model.setPathfindingMalus(PathType.DANGER_OTHER,-1);model.setPathfindingMalus(PathType.DAMAGE_OTHER,-1);
-            evaluator=new RouteEvaluator();evaluator.leaps=!wide;evaluator.setCanPassDoors(true);evaluator.setCanOpenDoors(true);evaluator.setCanFloat(false);
+            evaluator=new RouteEvaluator();evaluator.leaps=!wide;evaluator.nearHeat=nearHeat;evaluator.setCanPassDoors(true);evaluator.setCanOpenDoors(true);evaluator.setCanFloat(false);
         }
     }
     /**
@@ -367,6 +370,23 @@ final class NativeNavigation {
     /** Routes may jump down this far (a body stranded up on a roof, as a player jumps off); 0 keeps the vanilla three. */
     NativeNavigation drops(int blocks){maxDrop=blocks;return this;}
     private int maxDrop;
+    /**
+     * Picking a drop up: it may lie next to a lit stove or campfire or a magma block (food a stove grilled sits on top of
+     * it), which other walking keeps a block away from. Here a cell next to such a block is allowed, at vanilla's cost
+     * for it, when no fire or lava is within a block of it ({@link #flameFree}); the burning block itself is never a step.
+     */
+    NativeNavigation nearHeat(){nearHeat=true;model=null;return this;}
+    private boolean nearHeat;
+    /** Vanilla's own cost for a cell next to something burning (Mob's default DANGER_FIRE malus). */
+    static final float HEAT_EDGE_MALUS=8;
+    /**
+     * Whether nothing at or within one block of this cell (its level, one below, one above, as vanilla looks for burning
+     * neighbours) is fire or lava: then its danger comes from a block that only hurts when stepped on.
+     */
+    static boolean flameFree(Predicate<BlockPos> flame,int x,int y,int z){
+        for(int dx=-1;dx<=1;dx++)for(int dy=-1;dy<=1;dy++)for(int dz=-1;dz<=1;dz++)if(flame.test(new BlockPos(x+dx,y+dy,z+dz)))return false;
+        return true;
+    }
     /** Run instead of walk on ordinary legs (chasing or fleeing a mob); never on a gap leap, which is timed for walking speed. */
     NativeNavigation sprint(){sprint=true;return this;}
     private boolean sprint;
@@ -387,6 +407,8 @@ final class NativeNavigation {
         Predicate<Vec3> allowed=p->true;
         /** Gap leaps; a long walk goes round a gap instead (a missed leap by a cliff is a long fall). */
         boolean leaps=true;
+        /** A pickup: cells next to a lit stove, campfire or magma block are allowed unless fire or lava is near ({@link #nearHeat}). */
+        boolean nearHeat;
         /**
          * Every route: never step to a BLOCKED node or drop further than the model may fall. Vanilla shares one node per
          * block and marks the block under a too-long fall BLOCKED (cost -1) even when it is already queued; it then lets a
@@ -408,6 +430,7 @@ final class NativeNavigation {
             for(int i=0;i<count;i++){
                 Node next=output[i];
                 if((next.type==PathType.BLOCKED||next.costMalus<0||node.y-next.y>mob.getMaxFallDistance()))continue;
+                if(next.type==PathType.DANGER_FIRE&&!(nearHeat&&flameFree(this::flame,next.x,next.y,next.z)))continue;
                 if(allowed.test(new Vec3(next.x+0.5,next.y,next.z+0.5)))output[kept++]=next;
             }
             return kept;
@@ -429,6 +452,11 @@ final class NativeNavigation {
             if(landing.closed)return null;
             landing.type=PathType.WALKABLE;landing.costMalus=Math.max(landing.costMalus,0);
             return landing;
+        }
+        /** Fire or lava: open flame, never stood next to even for a pickup. */
+        private boolean flame(BlockPos pos){
+            BlockState state=currentContext.getBlockState(pos);
+            return state.is(BlockTags.FIRE)||state.getFluidState().is(FluidTags.LAVA);
         }
         /** No collision at all (the gap floor may hold a liquid). */
         private boolean passable(int x,int y,int z){

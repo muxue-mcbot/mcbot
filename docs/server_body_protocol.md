@@ -286,6 +286,8 @@ R4增量：容器多步骤任务要求Body同时提供acquireTask/releaseTask。
 
 （10-12 注：本段是 10-03 自写寻路的合同；3a 起改用原版 `PathFinder`／`WalkNodeEvaluator` 一次算路，节点上限 2048、宽搜 6000，按距离缩放，见 `NativeNavigation.java`；之后加了跳一格空隙、开关木门、游泳上岸，下面“未交付”只剩梯子和有伤下落。）当时：搜索分tick续算，单片最多64次展开，2ms是软时间目标（单次地形核验不可中途暂停），另有4096节点、32768候选边、192路点和地形读预算。有限动作总期限与行走无进展计时分开；搜索时停驻不触发行走卡住判定。实际预算诊断在完整动作回执的`navigation`中，不能把软目标说成硬实时保证。动态地形执行时重查，卡住／障碍仅有限重算。游泳、梯子、开门、跨沟跑酷和有伤下落未交付。
 
+（10-17）原版把着火的方块（火、岩浆、点着的营火和炉灶、岩浆块）周围一格当作 `DANGER_FIRE`，导航一律不走。只有 pickup 放开一半：这一格周围一格内没有火和岩浆、只挨着踩上去才烫的方块（点着的营火、农夫乐事点着的炉灶、岩浆块）时可以站进去捡，代价照原版 8；火和岩浆旁边、着火的方块本身仍然不走。见 `NativeNavigation.nearHeat()`。
+
 `survival-state`增加`dangers`及`threats`。前者包含火焰、液体、氧气、下落和默认低血事实；后者包含服务端tick、8格范围、complete标志及最多24个实体的UUID、类型、分类、敌对依据、是否锁定自己、距离、视线、存活、爆炸准备和防卫资格。未知Mod实体不能按名字猜敌对；当前原版明确敌对清单或原生攻击自身证据可获得资格，玩家及友军始终排除。单实体事实读取异常返回明确null、unknown、factsAvailable:false，整体complete:false，不能当作安全或拖垮全部观察。
 
 - `defend-entity`：`{entityId,expectedDimension,slot,expectedItem,expectedCount,expectedComponents,expectedMaxStackSize?,maxDistance:1..3,minHealth:1..20,maxAttacks:1..3,timeoutMs:500..5000}`。只做近身有限防卫，不追击。当前手持、身份、维度、资格、视线、原生触及范围、攻击冷却、潜在群伤、生命阈值和租约在每次挥击前核验。未知Mod武器、未验证的附魔／行为组件拒绝；当前仅验证裸手与普通原版剑斧。
