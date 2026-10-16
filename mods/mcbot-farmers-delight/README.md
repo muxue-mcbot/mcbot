@@ -43,4 +43,12 @@ cd mods/mcbot-server-control; ./gradlew.bat build        # 先构建核心，它
 cd ../mcbot-farmers-delight; ./gradlew.bat build          # 含离线测试 FarmersDelightRulesTest（49 项）
 ```
 
-目前只有离线检查（规则、预期范围、厨锅格子核对和剩余时间、番茄判断、说明长度），**还没进游戏实测**。隔离服实测要在测试服 `mods` 里放农夫乐事 1.2.9 和本模组的 jar。
+目前只有离线检查（规则、预期范围、厨锅格子核对和剩余时间、番茄判断、说明长度），**还没进游戏实测**。
+
+隔离服实测脚本 `scripts/server-farmers-delight-smoke.mjs`（10-16 写好，还没跑过）：测试服用平坦世界 `world`，`mods` 里放农夫乐事 1.2.9、带 8c 接口的核心 jar 和本模组 jar，先构建 client-runtime，再运行
+
+```pwsh
+$env:MC_SERVER_DIR='<隔离服绝对路径>'; node scripts/server-farmers-delight-smoke.mjs --allow-fixture
+```
+
+它在 x6790～6812、z6392～6410、y200 以上搭平台，依次测砧板（几种拒绝、放、切、捡叶子、取回）、宴席（拿错容器、盛烤鸡、镶馅南瓜最后一份方块消失、饭团拼盘不要容器）、派（木棍被拒、切一块、最后一块派消失）、番茄（survey、右键摘、藤留着、番茄苗不动）、厨锅（缺料、没热源、手里拿着碗也能放好就走、来早了、machine 事件、取出、`wait:true`），最后带 `--disabled-plugins farmers_delight` 再开一个运行端，确认看不到农夫乐事、produce-item 带上 `skipStations` 后服务端报 NO_RECIPE。运行期间把 `randomTickSpeed` 设成 0，结束时拆掉平台、恢复原值。报告写在 `output/server-farmers-delight-<时间>/report.json`。
