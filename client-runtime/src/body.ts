@@ -119,6 +119,8 @@ export interface BodyHello {
   itemInteractions?: string[];
   /** Mod container adapters the server has installed (e.g. ironfurnaces:iron_furnace); informational. */
   adapters?: string[];
+  /** Add-on workstations the server has installed (e.g. farmersdelight:cooking_pot); vanilla ones are built in and not listed. */
+  workstations?: string[];
   /** Mods whose machines the server owner opened to generic item-handler access (machine-items); empty or absent = none. */
   itemHandlerMods?: string[];
   /** ServerBody: built-in gestures and add-on animation sources for the emote action. */

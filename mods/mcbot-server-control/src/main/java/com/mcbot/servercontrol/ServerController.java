@@ -226,6 +226,7 @@ final class ServerController implements ControlSession.Game {
         if(lastDeath!=null)hello.add("lastDeath",deathReport());
         hello.add("itemInteractions",ItemInteractions.itemIds(interactions));
         hello.add("adapters",ModAdapters.containerIds());
+        hello.add("workstations",ModAdapters.addonWorkstationIds());
         hello.add("seatAdapters",ModAdapters.seatIds());
         hello.add("itemHandlerMods",ModAdapters.itemHandlerModIds());
         hello.add("hints",ModAdapters.hintsJson());

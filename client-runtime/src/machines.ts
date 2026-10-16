@@ -18,8 +18,11 @@ export interface PendingMachine {
   quiet?: boolean;
   /** The receipt gave no processing time: never claim it is done by the clock. */
   unknownTime?: boolean;
-  /** A brewing stand left mid-way: which stage is brewing, of how many, what goes in next, how to call again. */
-  kind?: 'brewing'; stage?: number; of?: number; next?: string; item?: string; potion?: string;
+  /**
+   * A brewing stand left mid-way: which stage is brewing, of how many, what goes in next, how to call again. A cooking
+   * station (an add-on's cooking pot) left cooking: the item to call produce-item with again.
+   */
+  kind?: 'brewing' | 'cooking'; stage?: number; of?: number; next?: string; item?: string; potion?: string;
   checks: number; errors: number;
 }
 const FORGET_AFTER_MS = 2 * 60 * 60_000, MAX_MACHINES = 32;
@@ -74,7 +77,10 @@ export class MachineWatch {
   private now(): number { return this.options.now?.() ?? Date.now(); }
   /** Every finished operation passes here: a furnace loaded without waiting is tracked, collecting there forgets it. */
   operation(operation: Operation): void {
-    if (operation.name === 'produce-item') { this.brewing(operation); return; }
+    if (operation.name === 'produce-item') {
+      if (typeof (operation.result as { cooking?: unknown } | undefined)?.cooking === 'boolean') this.cooking(operation); else this.brewing(operation);
+      return;
+    }
     if (operation.name !== 'smelt-item' || operation.status !== 'succeeded' || !this.dimension) return;
     const result = (operation.result ?? {}) as Result, furnace = result.furnace;
     if (!furnace) return;
@@ -104,6 +110,23 @@ export class MachineWatch {
         item: result.item, potion: result.potion, output: result.potion, queued: result.bottles ?? 0, stage: result.stage, of: result.of, loadedAt: now, readyAt: now + Math.round(seconds * 1000) + 1500 });
     } else if (result.code !== 'STILL_BREWING' && !(result.code === 'NO_FUEL' && result.bottles)) this.book.forget(this.dimension, result.station);
   }
+  /**
+   * An add-on cooking station (receipts carry cooking: true or false): loaded and left cooking, follow it; collected
+   * with more still cooking, recheck quietly; still cooking, keep following; anything else there, forget it.
+   */
+  private cooking(operation: Operation): void {
+    const result = (operation.result ?? {}) as Result & { station?: { x: number; y: number; z: number }; cooking?: boolean; code?: string; item?: string; sets?: number; leftInStation?: boolean };
+    if (!result.station || !this.dimension) return;
+    const now = this.now(), base = { dimension: this.dimension, position: result.station, block: result.type ?? '?', kind: 'cooking' as const, item: result.item, output: result.item, loadedAt: now };
+    if (operation.status === 'succeeded' && result.cooking) {
+      const seconds = result.readyInSeconds, unknownTime = !(typeof seconds === 'number' && seconds > 0);
+      this.book.track({ ...base, queued: result.sets ?? 0, readyAt: now + (unknownTime ? 0 : Math.round(seconds! * 1000)) + 1500, ...(unknownTime ? { unknownTime } : {}) });
+      return;
+    }
+    if (result.code === 'STILL_COOKING') return;
+    this.book.forget(this.dimension, result.station);
+    if (result.leftInStation) this.book.track({ ...base, queued: 0, readyAt: now, quiet: true });
+  }
   /** Machines still waiting or told about, for get-status. */
   waiting(): object[] { return this.book.summary(this.now()); }
   /** Called with each observation; checks due machines every few seconds. */
@@ -126,10 +149,11 @@ export class MachineWatch {
     this.events.add('machine', text);
   }
   private async check(machine: PendingMachine, dimension: string, now: number): Promise<void> {
-    const brew = machine.kind === 'brewing', where = `${short(machine.block)} ${at(machine.position)}`;
-    const what = brew ? `${machine.queued} 瓶药水` : machine.input ? `${machine.queued} 个 ${short(machine.input)}` : '东西';
+    const brew = machine.kind === 'brewing', cook = machine.kind === 'cooking', where = `${short(machine.block)} ${at(machine.position)}`;
+    const what = brew ? `${machine.queued} 瓶药水` : cook ? `${machine.queued ? `${machine.queued} 份` : ''} ${short(machine.item)}` : machine.input ? `${machine.queued} 个 ${short(machine.input)}` : '东西';
     const collect = brew
       ? `走过去用 produce-item（item=${machine.item}，potion=${machine.potion}，和上次一样）${machine.next ? `接着酿下一段（加 ${short(machine.next)}）` : '把药水取出来'}。`
+      : cook ? `想取的时候走过去用 produce-item（item=${machine.item}，和上次一样）把做好的取出来。`
       : `想取的时候走过去用 smelt-item furnace=${JSON.stringify(machine.position)}（不带 input）取出来。`;
     if (machine.dimension !== dimension) return this.tell(machine, `${where} 里的${what}到了预计的时间，但你不在那个维度，读不到进度；那边没人时不会烧。${collect}`);
     const guess = machine.unknownTime ? `${where} 里放了${what}，不知道要多久，也读不到进度；过一会儿自己去看看。${collect}` : `${where} 里的${what}应该好了（按时间估的）。${collect}`;
@@ -143,7 +167,7 @@ export class MachineWatch {
       this.book.update(machine, { errors: machine.errors + 1, readyAt: now + 20_000 }); return;
     }
     if (status.state === 'unloaded') return this.tell(machine, `${where} 里的${what}到了预计的时间，但那边区块没加载（附近没人），没加载时不会烧，回去后会接着烧。${collect}`);
-    if (status.id !== machine.block) { this.book.forget(machine.dimension, machine.position); if (!machine.quiet) this.events.add('machine', `${where} 那里现在是 ${status.id ?? '空的'}，炉子不见了，放进去的${what}可能已经掉出来了。`); return; }
+    if (status.id !== machine.block) { this.book.forget(machine.dimension, machine.position); if (!machine.quiet) this.events.add('machine', `${where} 那里现在是 ${status.id ?? '空的'}，${cook ? '锅' : '炉子'}不见了，放进去的${what}可能已经掉出来了。`); return; }
     if (!status.supported) return this.tell(machine, guess);
     const results = (status.results ?? []).map(s => `${s.count} 个 ${short(s.item)}`).join('、'), left = (status.inputs ?? []).reduce((n, s) => n + s.count, 0);
     if (brew) {
@@ -154,6 +178,22 @@ export class MachineWatch {
       if (status.stalled) return this.tell(machine, `${where} 停了：这一段的材料还在，但没在酿（没烈焰粉，或这一段酿不了）。带上烈焰粉再用 produce-item（item、potion 和上次一样）继续。`);
       if (machine.checks >= 10) return this.tell(machine, `${where} 这一段酿得比平常久，还没好。${collect}`);
       const wait = status.ticksLeft !== undefined && status.ticksLeft > 0 ? status.ticksLeft * 50 + 1500 : 5000;
+      this.book.update(machine, { checks: machine.checks + 1, readyAt: now + Math.max(3000, wait) }); return;
+    }
+    if (cook) {
+      // Sets still in the pot: the fewest of any input (each meal takes one of every input).
+      const sets = (status.inputs ?? []).length ? Math.min(...(status.inputs ?? []).map(s => s.count)) : 0;
+      if (machine.quiet) {
+        if (sets === 0) { this.book.forget(machine.dimension, machine.position); return; }
+        this.book.update(machine, { quiet: false, queued: sets });
+      }
+      if (sets === 0) {
+        if (!results) { this.book.forget(machine.dimension, machine.position); return; }
+        return this.tell(machine, `${where} 做好了，里面有 ${results}。不急的话等手头的事做完再去。${collect}`);
+      }
+      if (status.stalled) return this.tell(machine, `${where} 停了：还有 ${sets} 份的材料，但没在做（下面没有热源，或做好的没取、放不下了）${results ? `，已经做好 ${results}` : ''}。${collect}`);
+      if (machine.checks >= 20) return this.tell(machine, `${where} 还在做，还剩 ${sets} 份${results ? `，已经做好 ${results}` : ''}。${collect}`);
+      const wait = status.ticksLeft !== undefined && status.ticksLeft >= 0 ? status.ticksLeft * 50 + 1500 : 30_000;
       this.book.update(machine, { checks: machine.checks + 1, readyAt: now + Math.max(3000, wait) }); return;
     }
     if (machine.quiet) {

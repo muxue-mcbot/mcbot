@@ -139,6 +139,80 @@ test('a brewing stage left in the stand wakes the model with what goes in next, 
   assert.equal(t.book.list().length, 1, 'coming too early keeps following it');
 });
 
+test('a cooking pot loaded and left is followed by sets left, told when done, and kept while the model comes too early', async () => {
+  const POT = { x: 2, y: 65, z: 7 };
+  let sets = 2, working = true;
+  const t = setup(() => ({ position: POT, state: 'loaded', id: 'farmersdelight:cooking_pot', supported: true, machine: 'farmersdelight:cooking_pot',
+    inputs: sets ? [{ item: 'minecraft:beef', count: sets }, { item: 'minecraft:carrot', count: sets }, { item: 'minecraft:potato', count: sets + 3 }] : [],
+    results: [{ item: 'farmersdelight:beef_stew', count: 2 - sets }].filter(s => s.count > 0), fuel: null, working, ticksLeft: working && sets ? sets * 200 : -1, stalled: sets > 0 && !working }));
+  const cook = (over = {}) => ({ operationId: `cook-${Math.random()}`, sessionId: 's', name: 'produce-item', status: 'succeeded', summary: 'Loaded',
+    result: { item: 'farmersdelight:beef_stew', station: POT, type: 'farmersdelight:cooking_pot', cooking: true, collected: 0, sets: 2, readyInSeconds: 20, recipe: 'farmersdelight:cooking/beef_stew', ...over } });
+  await t.watch.tick('minecraft:overworld');
+  t.events.recordOperation(cook());
+  assert.equal(t.book.list()[0].kind, 'cooking');
+  assert.equal(t.book.list()[0].queued, 2);
+  t.advance(15_000); await t.watch.tick('minecraft:overworld');
+  assert.equal(t.reads.length, 0, 'not read before it is due');
+  sets = 1; t.advance(7_000); await t.watch.tick('minecraft:overworld');
+  assert.equal(t.machine().length, 0, 'one set still in: wait for the pot');
+  assert.equal(t.watch.waiting()[0].readyInSeconds, 12, '200 ticks left plus slack');
+  t.events.recordOperation({ operationId: 'early', sessionId: 's', name: 'produce-item', status: 'failed', summary: 'STILL_COOKING',
+    result: { item: 'farmersdelight:beef_stew', station: POT, type: 'farmersdelight:cooking_pot', cooking: false, collected: 0, code: 'STILL_COOKING' } });
+  assert.equal(t.book.list().length, 1, 'coming too early keeps following it');
+  sets = 0; t.advance(12_000); await t.watch.tick('minecraft:overworld');
+  assert.equal(t.machine().length, 1);
+  assert.match(t.machine()[0].text, /cooking_pot \(2, 65, 7\) 做好了，里面有 2 个 farmersdelight:beef_stew.*produce-item（item=farmersdelight:beef_stew，和上次一样）/);
+  t.events.recordOperation({ operationId: 'taken', sessionId: 's', name: 'produce-item', status: 'succeeded', summary: 'Collected',
+    result: { item: 'farmersdelight:beef_stew', station: POT, type: 'farmersdelight:cooking_pot', cooking: false, collected: 2 } });
+  assert.equal(t.book.list().length, 0, 'taken out: forgotten');
+});
+
+test('a cooking pot that stops, one taken while more cooks, a refused load and one that vanished', async () => {
+  const POT = { x: 2, y: 65, z: 7 };
+  const pot = (over = {}) => ({ position: POT, state: 'loaded', id: 'farmersdelight:cooking_pot', supported: true, inputs: [{ item: 'minecraft:beef', count: 3 }, { item: 'minecraft:carrot', count: 3 }],
+    results: [{ item: 'farmersdelight:beef_stew', count: 1 }], fuel: null, working: false, ticksLeft: -1, stalled: true, ...over });
+  const loadedPot = { operationId: 'cook', sessionId: 's', name: 'produce-item', status: 'succeeded', summary: 'Loaded',
+    result: { item: 'farmersdelight:beef_stew', station: POT, type: 'farmersdelight:cooking_pot', cooking: true, sets: 4, readyInSeconds: 40 } };
+
+  const stalled = setup(pot());
+  await stalled.watch.tick('minecraft:overworld'); stalled.events.recordOperation(loadedPot);
+  stalled.advance(45_000); await stalled.watch.tick('minecraft:overworld');
+  assert.match(stalled.machine()[0].text, /停了：还有 3 份的材料.*热源.*已经做好 1 个 farmersdelight:beef_stew/);
+
+  let left = 2;
+  const more = setup(() => pot({ inputs: left ? [{ item: 'minecraft:beef', count: left }] : [], results: [], working: left > 0, stalled: false, ticksLeft: left * 200 }));
+  await more.watch.tick('minecraft:overworld');
+  more.events.recordOperation({ operationId: 'part', sessionId: 's', name: 'produce-item', status: 'succeeded', summary: 'Collected',
+    result: { item: 'farmersdelight:beef_stew', station: POT, type: 'farmersdelight:cooking_pot', cooking: false, collected: 2, leftInStation: true } });
+  assert.equal(more.book.list()[0].quiet, true, 'collected with more cooking: rechecked quietly');
+  await more.watch.tick('minecraft:overworld');
+  assert.equal(more.machine().length, 0);
+  assert.equal(more.book.list()[0].quiet, false, 'still cooking after the collect: followed');
+  assert.equal(more.book.list()[0].queued, 2);
+  left = 0; more.advance(25_000); await more.watch.tick('minecraft:overworld');
+  assert.equal(more.machine().length, 0, 'done but nothing waiting in it (taken by someone): no news');
+  assert.equal(more.book.list().length, 0);
+
+  const nothing = setup(pot({ inputs: [], results: [] }));
+  await nothing.watch.tick('minecraft:overworld');
+  nothing.events.recordOperation({ ...loadedPot, operationId: 'quiet', result: { ...loadedPot.result, cooking: false, collected: 1, leftInStation: true } });
+  await nothing.watch.tick('minecraft:overworld');
+  assert.equal(nothing.machine().length, 0, 'quiet recheck with nothing left is no news');
+  assert.equal(nothing.book.list().length, 0);
+
+  const refused = setup(pot());
+  await refused.watch.tick('minecraft:overworld');
+  refused.events.recordOperation(loadedPot);
+  refused.events.recordOperation({ ...loadedPot, operationId: 'refused', status: 'failed', summary: 'RECIPE_REFUSED', result: { ...loadedPot.result, cooking: false, code: 'RECIPE_REFUSED' } });
+  assert.equal(refused.book.list().length, 0, 'a refused load there is not followed');
+
+  const gone = setup({ position: POT, state: 'loaded', id: 'minecraft:air', supported: false });
+  await gone.watch.tick('minecraft:overworld'); gone.events.recordOperation(loadedPot);
+  gone.advance(45_000); await gone.watch.tick('minecraft:overworld');
+  assert.match(gone.machine()[0].text, /锅不见了/);
+  assert.equal(gone.book.list().length, 0);
+});
+
 test('the list survives a restart of the runtime (per world file)', async () => {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'mcbot-machines-'));
   try {

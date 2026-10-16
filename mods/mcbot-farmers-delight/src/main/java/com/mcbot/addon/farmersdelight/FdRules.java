@@ -141,6 +141,28 @@ final class FdRules {
         return after.get("bites").getAsInt() == b + 1;
     }
 
+    // ---------- cooking pot ----------
+
+    /** Inventory slot behind a player slot of CookingPotMenu: menu 9-35 are the main rows (same index), 36-44 the hotbar. */
+    static int playerSlot(int menuSlot) { return menuSlot < 36 ? menuSlot : menuSlot - 36; }
+
+    /** The pot's own nine menu slots: the verified classes, all on the pot's one item handler, in its slot order. */
+    static boolean potSlots(List<String> classes, List<String> expected, List<Object> handlers, Object inventory, List<Integer> indices) {
+        if (inventory == null || !classes.equals(expected) || handlers.size() != expected.size() || indices.size() != expected.size()) return false;
+        for (int i = 0; i < expected.size(); i++) if (handlers.get(i) != inventory || indices.get(i) != i) return false;
+        return true;
+    }
+
+    /**
+     * Ticks until the inputs are used up: the rest of the current meal plus a full cook for every set still in.
+     * -1 when it is not cooking or the pot has no cook time yet; 0 when nothing is left.
+     */
+    static int potTicksLeft(int sets, int cookTime, int cookTimeTotal, boolean working) {
+        if (sets <= 0) return 0;
+        if (!working || cookTimeTotal <= 0) return -1;
+        return Math.max(0, cookTimeTotal - cookTime) + (sets - 1) * cookTimeTotal;
+    }
+
     // ---------- tomatoes ----------
 
     static final String TOMATOES = "farmersdelight:tomatoes", BUDDING_TOMATOES = "farmersdelight:budding_tomatoes";

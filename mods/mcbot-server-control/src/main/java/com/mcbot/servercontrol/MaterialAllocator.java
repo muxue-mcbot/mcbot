@@ -64,6 +64,18 @@ final class MaterialAllocator {
         return false;
     }
 
+    /**
+     * Whether these stacks, one per slot, are exactly one set of the cells: each fills a different cell and none is
+     * left over. A shapeless station's inputs (a cooking pot) are this recipe's when this holds.
+     */
+    static <T> boolean oneSet(List<Predicate<T>> cells,List<T> stacks) {
+        if(cells.stream().filter(Objects::nonNull).count()!=stacks.size()||stacks.isEmpty())return false;
+        // Each slot is its own kind with one to give, so no two cells can take the same stack.
+        List<Source<T>> sources=new ArrayList<>();
+        for(int i=0;i<stacks.size();i++)sources.add(new Source<>(i,stacks.get(i),i,1,1));
+        return allocate(cells,sources,1)!=null;
+    }
+
     /** The largest number of crafts (≤ wanted, ≤ 64) that can be laid out in one round; 0 when none. */
     static <T> int feasible(List<Predicate<T>> cells,List<Source<T>> sources,int wanted) {
         for(int k=Math.min(wanted,64);k>0;k--)if(allocate(cells,sources,k)!=null)return k;

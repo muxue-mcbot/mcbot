@@ -106,6 +106,34 @@ final class ModAdapters {
         }
         return List.copyOf(result);
     }
+    /**
+     * Namespaces of add-on workstations to leave out of this call: {@code args.skipStations}, which the runtime adds
+     * for plugins the hosting person turned off for the agent (the mods stay installed, so the server would still use them).
+     */
+    static Set<String> skippedNamespaces(com.google.gson.JsonObject args) {
+        Set<String> skip=new HashSet<>();
+        if(args!=null&&args.has("skipStations")&&args.get("skipStations").isJsonArray())
+            for(var e:args.getAsJsonArray("skipStations"))if(e.isJsonPrimitive()&&e.getAsJsonPrimitive().isString())skip.add(e.getAsString());
+        return skip;
+    }
+    /** Whether a workstation belongs to a skipped namespace (built-in vanilla stations never do). */
+    static boolean skipped(WorkstationAdapter adapter,Set<String> skip) {
+        return !skip.isEmpty()&&skip.contains(namespaceOf(safeId(adapter::id)));
+    }
+    /** hello.workstations: ids of the installed add-on workstations, so the runtime can leave out a plugin that is off. */
+    static JsonArray addonWorkstationIds() {
+        JsonArray ids=new JsonArray();
+        for(WorkstationAdapter a:addonWorkstations)if(installed(a::installed)){String id=safeId(a::id);if(id!=null)ids.add(id);}
+        return ids;
+    }
+    /** Installed add-on workstations of one template (multi-input processors such as a cooking pot), in registration order. */
+    static List<WorkstationAdapter> addonWorkstations(Template template) {
+        List<WorkstationAdapter> result=new ArrayList<>();
+        for(WorkstationAdapter adapter:addonWorkstations) {
+            try { if(adapter.template()==template&&adapter.installed()) result.add(adapter); } catch(RuntimeException | LinkageError broken) { /* not a match */ }
+        }
+        return result;
+    }
     static List<String> workstationIds() {List<String> ids=new ArrayList<>();for(var a:VanillaWorkstations.ALL)ids.add(a.id());for(var a:addonWorkstations)ids.add(safeId(a::id));return ids;}
     /**
      * The workstation adapter for a block state and template, or null. Vanilla blocks only ever match the built-in

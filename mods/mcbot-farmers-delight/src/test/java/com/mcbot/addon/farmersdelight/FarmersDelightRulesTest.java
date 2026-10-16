@@ -16,7 +16,9 @@ final class FarmersDelightRulesTest {
         feasts();
         pies();
         tomatoes();
-        System.out.println("FarmersDelightRulesTest: " + checks + " checks passed (cutting board, feasts, pies, tomatoes; no Minecraft launch)");
+        cookingPot();
+        check(McbotFarmersDelight.HINT.length() <= com.mcbot.servercontrol.api.McbotApi.HINT_MAX, "the hint fits (registerHint refuses longer text at startup)");
+        System.out.println("FarmersDelightRulesTest: " + checks + " checks passed (cutting board, feasts, pies, tomatoes, cooking pot; no Minecraft launch)");
     }
 
     private static void board() {
@@ -93,5 +95,19 @@ final class FarmersDelightRulesTest {
         check(FdRules.tomato(FdRules.TOMATOES, FdRules.VINE_CLASS) == CropRule.Harvest.PICK, "a tomato vine is picked");
         check(FdRules.tomato(FdRules.BUDDING_TOMATOES, FdRules.BUDDING_CLASS) == CropRule.Harvest.GROWING, "a budding tomato is left to grow");
         check(FdRules.tomato(FdRules.TOMATOES, "some.other.TomatoVineBlock") == null && FdRules.tomato("farmersdelight:cabbages", FdRules.VINE_CLASS) == null, "anything else keeps the generic rules");
+    }
+
+    private static void cookingPot() {
+        check(FdRules.playerSlot(9) == 9 && FdRules.playerSlot(35) == 35 && FdRules.playerSlot(36) == 0 && FdRules.playerSlot(44) == 8, "player rows then hotbar, as CookingPotMenu adds them");
+        List<String> expected = List.of("a", "a", "b");
+        Object inventory = new Object(), other = new Object();
+        check(FdRules.potSlots(List.of("a", "a", "b"), expected, List.of(inventory, inventory, inventory), inventory, List.of(0, 1, 2)), "verified classes on the pot's handler in order");
+        check(!FdRules.potSlots(List.of("a", "b", "b"), expected, List.of(inventory, inventory, inventory), inventory, List.of(0, 1, 2)), "a different slot class is refused");
+        check(!FdRules.potSlots(List.of("a", "a", "b"), expected, List.of(inventory, other, inventory), inventory, List.of(0, 1, 2)), "a slot on another handler is refused");
+        check(!FdRules.potSlots(List.of("a", "a", "b"), expected, List.of(inventory, inventory, inventory), inventory, List.of(0, 2, 1)), "slots out of order are refused");
+        check(!FdRules.potSlots(List.of("a", "a", "b"), expected, List.of(inventory, inventory, inventory), null, List.of(0, 1, 2)), "no handler, no pot");
+        check(FdRules.potTicksLeft(3, 50, 200, true) == 150 + 2 * 200, "rest of this meal plus two more");
+        check(FdRules.potTicksLeft(0, 0, 200, false) == 0, "nothing in: nothing left");
+        check(FdRules.potTicksLeft(2, 0, 200, false) == -1 && FdRules.potTicksLeft(2, 0, 0, true) == -1, "not cooking, or no cook time yet: unknown");
     }
 }

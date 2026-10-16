@@ -1,0 +1,46 @@
+# mcbot-farmers-delight
+
+MCBOT 的附属模组：让 Bot 会用 [Farmer's Delight（农夫乐事）](https://modrinth.com/mod/farmers-delight) 的砧板、宴席、派、番茄藤和厨锅。接口见 [Mod 适配接口](../../docs/mod_adapters.md)。
+
+- **只支持** Farmer's Delight `1.2.9`（NeoForge 1.21.1）。版本对不上时适配报告“没安装”，Bot 不会去用。1.21.1 的最新版是 1.3.4，还没核对。
+- 用类名和反射访问农夫乐事，编译时不依赖它；模组里不带农夫乐事的代码和素材。
+- 服务器上同时装：`mcbot-server-control`、`farmersdelight`、本模组。单人世界也一样，装在客户端的 mods 里。
+- 用到核心 10-16 新加的接口（`CropRule`、多原料 `PROCESSOR`、`StationRecipe` 的容器、`notReady`），已发布的核心 0.0.5 里没有。发布前要先提核心版本，再把本模组的 `core_min`（和 compat.json 的 `coreMin`）提到那个版本。
+
+## 能做什么
+
+| 功能 | AI 用什么 | 说明 |
+| --- | --- | --- |
+| 砧板放料 | `interact-block`，`farmersdelight:cutting_board/place` | 手里拿着有切割配方的食材，放上去一个 |
+| 砧板切 | `interact-block`，`farmersdelight:cutting_board/cut` | 拿着配方要的工具（刀、斧等，`summary.tools` 列出），成品掉在砧板旁边，要自己捡；工具掉耐久，可能用坏 |
+| 砧板取回 | `interact-block`，`farmersdelight:cutting_board/take` | 空手，取回放着的东西 |
+| 宴席分餐 | `interact-block`，`farmersdelight:feast/serve` | 拿着 `summary.container` 写的容器（多数是碗），一次一份；没有剩菜的宴席最后一份分完方块消失，有剩菜的留下剩菜 |
+| 切派 | `interact-block`，`farmersdelight:pie/slice` | 拿着刀（`farmersdelight:tools/knives` 标签），一次切下一块掉在地上；刀不掉耐久；最后一块切完派消失 |
+| 摘番茄 | `tend-crops` | 熟了的番茄藤右键摘（藤回到 0 龄继续长），不拆藤、不补种；还没爬藤的番茄苗当作在长，不碰 |
+| 厨锅 | `produce-item`（item 是菜，count 是份数） | 见下面 |
+
+厨锅（`farmersdelight:cooking_pot`）按多原料 `PROCESSOR` 接入：
+
+- 配方从服务器的 `farmersdelight:cooking` 配方读（数据包改了也跟着变），原料不分顺序，最多 6 种；配方要容器（碗等）时一起放进容器格。
+- 原料和容器必须先在背包里（不自动去箱子拿）。不够时如果附近有锅正在做这道菜或已经做好，就过去取；都没有报 MISSING_MATERIALS，列出缺什么（容器单独一行）。
+- 下面没有热源报 STATION_NOT_READY（热源是 `#farmersdelight:heat_sources`，如点着的炉灶、营火）；放进去 3 秒还没开始做就全部拿回，报 RECIPE_REFUSED。
+- 默认看到开始做就走（回执 `cooking:true`、`readyInSeconds`），运行端照熔炉记账，做好、停了（没热源、成品格满）都发 `machine` 事件；之后同样的 item 再调一次取出来，还在做报 STILL_COOKING。`wait:true` 站在旁边等，做好一份取一份。
+- 打开前先把手换成空格（或不拿容器的格子）：手里拿着碗右键锅是盛菜，不会打开界面。
+- 锅里有别人的原料、别的菜等着盛、成品格有别的东西时不碰，换下一口锅。
+
+## 安全规则
+
+- **按类名逐个核对**：方块、方块实体、菜单的类名和 1.2.9 一致；菜单 45 格，前 9 格（6 个原料格、盛菜显示格、容器格、成品格）的槽位类都要对上，而且都在锅自己的物品处理器上、编号 0～8 依次对应；后 36 格是 Bot 自己的背包（主背包 27 格、快捷栏 9 格），原索引一致。任何一项对不上，整个界面当作不支持。
+- 砧板、宴席、派的每次右键前后各读一次方块内部状态（`summary`），只有变化都在预期范围内才算成功：放料只能少 1 个，切只能掉配方会出的东西，分餐只少一份、只用一个容器。
+- 副手拿着非装备的东西时，砧板会去拿副手那件，放料前先拒绝。
+- 番茄藤和番茄苗只按“方块 id ＋ 类名”认，认不出的作物照核心原来的规则处理。
+- 关掉「给 AI 用」后：交互和厨锅都从 hello 去掉，运行端在工作站调用里带 `skipStations`，服务端不会选农夫乐事的锅。
+
+## 构建和测试
+
+```pwsh
+cd mods/mcbot-server-control; ./gradlew.bat build        # 先构建核心，它的 jar 提供 MCBOT API
+cd ../mcbot-farmers-delight; ./gradlew.bat build          # 含离线测试 FarmersDelightRulesTest（49 项）
+```
+
+目前只有离线检查（规则、预期范围、厨锅格子核对和剩余时间、番茄判断、说明长度），**还没进游戏实测**。隔离服实测要在测试服 `mods` 里放农夫乐事 1.2.9 和本模组的 jar。

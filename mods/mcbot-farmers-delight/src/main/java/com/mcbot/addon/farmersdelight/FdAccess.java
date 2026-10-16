@@ -101,7 +101,7 @@ final class FdAccess {
     static boolean carving(BlockEntity board) { return (boolean) call(method(board.getClass(), "isItemCarvingBoard"), board); }
 
     /** One cutting recipe: what goes on the board, the tool, and every item it can give (chance ones included). */
-    record Cut(String id, Ingredient input, Ingredient tool, List<ItemStack> results) {}
+    record Cut(String recipe, Ingredient input, Ingredient tool, List<ItemStack> results) {}
 
     /** The server's cutting recipes, read live (data packs can change them). */
     @SuppressWarnings({"unchecked", "rawtypes"})

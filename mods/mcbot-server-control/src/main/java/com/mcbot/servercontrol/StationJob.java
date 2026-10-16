@@ -49,6 +49,8 @@ abstract class StationJob implements BodyTask {
     void waitTick() {}
     /** What this job calls a missing station in its error code. */
     abstract String noStationCode();
+    /** Just before the right-click that opens the station (what the hand holds can change what the click does). */
+    void beforeOpen() {}
 
     void start() {
         if(player.containerMenu!=player.inventoryMenu)throw error("BUSY","Close the current container first");
@@ -124,6 +126,7 @@ abstract class StationJob implements BodyTask {
             navigation.stop();navigation=null;
         }
         player.stopInput();
+        beforeOpen();
         use(player,target);
         AbstractContainerMenu menu=player.containerMenu;
         if(menu==player.inventoryMenu){skip("did not open");return;}
