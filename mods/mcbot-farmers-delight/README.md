@@ -43,9 +43,11 @@ cd mods/mcbot-server-control; ./gradlew.bat build        # 先构建核心，它
 cd ../mcbot-farmers-delight; ./gradlew.bat build          # 含离线测试 FarmersDelightRulesTest（49 项）
 ```
 
-目前只有离线检查（规则、预期范围、厨锅格子核对和剩余时间、番茄判断、说明长度），**还没进游戏实测**。
+离线检查：规则、预期范围、厨锅格子核对和剩余时间、番茄判断、说明长度。
 
-隔离服实测脚本 `scripts/server-farmers-delight-smoke.mjs`（10-16 写好，还没跑过）：测试服用平坦世界 `world`，`mods` 里放农夫乐事 1.2.9、带 8c 接口的核心 jar 和本模组 jar，先构建 client-runtime，再运行
+10-16 在隔离服实测 36 项全部通过（农夫乐事 1.2.9，没用真实模型和测试玩家）。第一次跑查出两处核心和运行端的问题，已修：最后一个碗盛了菜、菜落在碗原来那格时回执判成 unknown（核心回执比对补上这种情况）；厨锅回执的 `container`（盛菜的容器）被运行端当成菜单读，报错。没进游戏测的（只有离线测试）：锅里有别的菜时换锅、放进去不开始做（RECIPE_REFUSED）、砧板上放着刀（carving）、区块卸载和换维度后的 machine 事件。
+
+隔离服实测脚本 `scripts/server-farmers-delight-smoke.mjs`：测试服用平坦世界 `world`，`mods` 里放农夫乐事 1.2.9、带 8c 接口的核心 jar 和本模组 jar，先构建 client-runtime，再运行
 
 ```pwsh
 $env:MC_SERVER_DIR='<隔离服绝对路径>'; node scripts/server-farmers-delight-smoke.mjs --allow-fixture

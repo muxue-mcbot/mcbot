@@ -67,6 +67,12 @@ final class ItemInteractionsTest {
         var takeOut=new ItemInteraction.Expected(0,0,false,Set.of(),Set.of(),Set.of("example:dish"),false);
         var gainedDish=ItemInteractions.judge(snapshot("0",stack(0,"minecraft:air",0,obj())),snapshot("0",stack(0,"example:dish",1,obj())),0,takeOut,(x,y)->true);
         check(gainedDish.status().equals("succeeded")&&gainedDish.gained().size()==1,"declared product gain into the empty hand is confirmed");
+        // The last container used up and the product put where it was (a feast served into the last bowl)
+        var serve=new ItemInteraction.Expected(1,1,false,Set.of(),Set.of(),Set.of("example:dish"),false);
+        var lastBowl=ItemInteractions.judge(snapshot("0",stack(0,"minecraft:bowl",1,obj())),snapshot("0",stack(0,"example:dish",1,obj())),0,serve,(x,y)->true);
+        check(lastBowl.status().equals("succeeded")&&lastBowl.consumed()==1&&lastBowl.gained().toString().equals("[{\"slot\":0,\"id\":\"example:dish\",\"count\":1}]"),"the declared product replacing the last held one counts as one used and one gained");
+        check(ItemInteractions.judge(snapshot("0",stack(0,"minecraft:bowl",2,obj())),snapshot("0",stack(0,"example:dish",1,obj())),0,serve,(x,y)->true).status().equals("unknown"),"a whole held stack of two replaced is more than declared");
+        check(ItemInteractions.judge(snapshot("0",stack(0,"minecraft:bowl",1,obj())),snapshot("0",stack(0,"minecraft:dirt",1,obj())),0,serve,(x,y)->true).status().equals("unknown"),"an undeclared item replacing the held one stays unknown");
         var menu=new ItemInteraction.Expected(0,0,false,Set.of(),Set.of(),Set.of(),true);
         JsonObject menuAfter=snapshot("0",shovel);menuAfter.addProperty("menu","example:backpack");
         check(ItemInteractions.judge(snapshot("0",shovel),menuAfter,0,menu,(x,y)->true).status().equals("succeeded"),"declared menu opening is within the envelope (menu contract checked separately)");

@@ -115,7 +115,7 @@
       "jar": "mcbot-farmers-delight-0.0.1.jar",
       "coreMin": "0.0.5",
       "what": ["砧板：放上食材、用刀或斧切开、取回", "宴席分餐（拿碗盛一份）和用刀切派", "番茄藤右键摘番茄（不拆藤）", "厨锅：放入多种原料和碗、加热后自动烹饪、取出成品"],
-      "evidence": "离线检查（尚未进游戏实测）",
+      "evidence": "隔离服实测（砧板、宴席、派、番茄、厨锅）",
       "requires": [
         { "modId": "farmersdelight", "version": "1.2.9", "side": "both", "license": "MIT",
           "modrinth": { "project": "farmers-delight", "versionId": "opCbq7uB", "file": "FarmersDelight-1.21.1-1.2.9.jar", "size": 2964387,

@@ -620,7 +620,7 @@ R4增量：容器多步骤任务要求Body同时提供acquireTask/releaseTask。
 - `use-item`：`{interaction,slot,expectedItem,expectedCount>0,expectedComponents,timeoutMs?}`，主手对空使用。开始了按住使用（弓、盾、食物）会立即停止并判为 unknown；吃东西继续用 `eat-item`。
 - 发包前拒绝（不产生任何原生效果）：交互没登记或版本不对、交互不适用这个方块、手持物品不被接受、要求空手却给了物品（或反过来）、交互的前置检查不满足（`INTERACTION_NOT_READY`，例如堆肥桶 level≥7），以及原有的 `STALE_BLOCK`／`STALE_ITEM`／`OUT_OF_REACH`／`NO_LINE_OF_SIGHT`。
 - 发包后按前后快照判定：快照包含方块 ID 和属性、适配器摘要、整个背包（带完整组件）、当前菜单类型、目标周围 2 格内的掉落物。
-  - `succeeded`：所有变化都在交互声明的范围内（允许变的方块属性和摘要字段、手持物品消耗数量的上下限、是否允许耐久损耗、允许多出的物品、是否允许打开菜单），并通过适配器自己的数值检查。
+  - `succeeded`：所有变化都在交互声明的范围内（允许变的方块属性和摘要字段、手持物品消耗数量的上下限、是否允许耐久损耗、允许多出的物品、是否允许打开菜单），并通过适配器自己的数值检查。手上那格整格用完、原地换成了允许多出的物品（例如最后一个碗盛了菜，2026-10-16 农夫乐事实测发现）时，算用掉整格、多出那件，整格超过消耗上限照样不算成功。
   - `failed` + `NO_EFFECT`：前后快照完全一样（包括被保护事件取消的情况）。回执不带 inventory。
   - `unknown` + `NATIVE_UNKNOWN`：其他所有情况。回执带 `unexpected`（逐条原因）、`inventory`、`before`、`after`，不自动重试。
   - 打开了没有适配器菜单契约核验的菜单：立即原生关闭，判为 unknown。

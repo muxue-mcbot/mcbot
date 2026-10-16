@@ -138,4 +138,5 @@
   - 核心：`PROCESSOR` 支持多原料。`StationRecipe` 加了容器（`shapeless` 构造），适配接口加了可选的 `notReady`；`produce-item` 没有切石或酿造配方时找附属模组的多原料 `PROCESSOR`，原料按格分好、容器放进容器格，3 秒内看到开始做就走，回执 `cooking:true` 交给运行端记账；再调一次取出来。`smelt-item` 遇到多原料格的机器跳过，让模型用 `produce-item`。机器里已有原料时，只有正好是这道菜一份配方的（`MaterialAllocator.oneSet`）才算在做这道菜。
   - 砧板不走工作站模板：它是右键交互（放料、切、取回），成品掉在地上由交互的掉落观察核对，和设计里写的一样。
   - 关掉「给 AI 用」的插件：hello 的 `workstations` 去掉它，运行端在四个工作站工具的参数里带 `skipStations`。
-  - 还没做：Iron Furnaces 迁到 `PROCESSOR`、JSON 声明；厨锅和砧板都还没进游戏。
+  - 10-16 隔离服实测（`server-farmers-delight-smoke.mjs` 36 项）：厨锅缺料、没热源、拿着碗放好就走、来早了、machine 事件、取出、`wait:true`、关掉插件后 `skipStations` 都通过；砧板、宴席、派、番茄也一起测了。
+  - 还没做：Iron Furnaces 迁到 `PROCESSOR`、JSON 声明。

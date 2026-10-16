@@ -177,7 +177,7 @@ McbotApi.registerHint("examplecook:hint", "Wok: add oil first, then ingredients,
 - 离线：`ModAdaptersTest`（登记、合并、出错时的处理、JSON 格式、`registerHint` 的校验和 hello 的 `hints`）、运行端 `client-runtime/tests/plugins.test.mjs`（开关过滤、硬调拒绝、说明的过滤和位置）、`ItemInteractionsTest`、`GenericItemSlotsTest`（通用物品槽适配：配置、分派、方向面、放入取出、出错）。
 - 铁炉附属模组的离线测试 `IronFurnaceAdapterTest` 在 `mods/mcbot-iron-furnaces`，由它自己的 `gradlew build` 运行；农夫乐事的 `FarmersDelightRulesTest` 在 `mods/mcbot-farmers-delight`，也一样。
 - 隔离服：`scripts/server-adapter-smoke.mjs`。测试服要临时装上 Iron Furnaces 4.3.2 和 `mcbot-iron-furnaces` 附属模组，并在 `interactions/` 里放一份正确的重生锚声明和一份故意写错的声明。
-- 示例附属模组：`scripts/server-farmers-delight-smoke.mjs`（农夫乐事，10-16 写好还没跑，见它的 README）、`scripts/server-cooking-smoke.mjs`（森罗厨房）、`scripts/server-backpack-smoke.mjs`（SB，开服前先运行 `scripts/server-backpack-fixture.mjs`）、`scripts/server-emote-smoke.mjs`（YSM，也测内置手势和场景提示）。
+- 示例附属模组：`scripts/server-farmers-delight-smoke.mjs`（农夫乐事，10-16 隔离服 36 项通过，见它的 README）、`scripts/server-cooking-smoke.mjs`（森罗厨房）、`scripts/server-backpack-smoke.mjs`（SB，开服前先运行 `scripts/server-backpack-fixture.mjs`）、`scripts/server-emote-smoke.mjs`（YSM，也测内置手势和场景提示）。
 
 ## 和其他 Mod 一起用时要注意
 
