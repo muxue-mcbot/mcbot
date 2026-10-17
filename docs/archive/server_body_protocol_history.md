@@ -1,6 +1,6 @@
 # ServerBody 控制协议：历史记录
 
-2026-10-18 从[控制协议](../server_body_protocol.md)移出：生存 Alpha 第一、二批的合同和试玩修正、10-03 到 10-11 各次改动的说明和验证范围、旧的自写寻路合同、已删的 `follow-companion`／`step-aside-stop`／`beside-follow` 合同、各批次的工具数和离线检查数。下面是 10-17 版（278f408）的原文，没有改写；现行规范以[控制协议](../server_body_protocol.md)为准，这里的说法和它不一致时以它为准。
+2026-10-18 从[控制协议](../server_body_protocol.md)移出：生存 Alpha 第一、二批的合同和试玩修正、10-03 到 10-11 各次改动的说明和验证范围、旧的自写寻路合同、已删的 `follow-companion`／`step-aside-stop`／`beside-follow` 合同、各批次的工具数和离线检查数。下面是 10-17 版（278f408）的原文，内容没有改写，只把标题降了一级、相对链接改成从 archive/ 出发；现行规范以[控制协议](../server_body_protocol.md)为准，这里的说法和它不一致时以它为准。
 
 ## 一、早期批次（10-03～10-04）
 

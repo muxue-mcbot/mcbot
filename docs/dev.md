@@ -47,9 +47,9 @@ Java检查由`controlTest`接入`check`，标准Gradle `test`任务关闭；`che
 
 1. 照现有的附属模组（比如 `mods/mcbot-farmers-delight`）建 `mods/mcbot-<x>`：`settings.gradle` 的项目名、包名、`src/main/templates/META-INF/neoforge.mods.toml` 的 mod id；`build.gradle` 按核心 `gradle.properties` 的 `mod_version` 拼核心 jar 名，不写死；mods.toml 对核心的要求写 `[${core_min},)`，NeoForge 下限和 `compat.json` 的 `loaderMin` 一致。代码里写被适配模组的 mod id 和确切版本，登记给 MCBOT 的 id 用被适配模组的命名空间。接口见 [Mod 适配](mod_adapters.md#java-附属模组)。
 2. `compat.json` 的 `adapters` 加一条：`kind: "addon"`、`project`、`jar`、`coreMin`、`what`、`evidence`，`requires` 里写被适配模组的 mod id、确切版本、许可证和 Modrinth 的 url、文件名、大小。
-3. `gradle.properties` 的 `core_min` 和清单的 `coreMin` 同值；用到核心新接口时就是当前核心版本。以后改版本用 `node scripts/set-version.mjs <插件 id> <版本> --core-min <核心版本>`（清单里要先有这一条）。
+3. `gradle.properties` 的 `core_min` 和清单的 `coreMin` 同值。用到核心新接口时，先 `node scripts/set-version.mjs app <新版本>` 提核心版本，再 `node scripts/set-version.mjs <插件 id> <版本> --core-min <新核心版本>`（清单里要先有这一条）；`check-compat` 不许 `coreMin` 高于核心版本。
 4. `node scripts/check-compat.mjs` 核对 jar 名、版本锁、`coreMin`、mods.toml 和登记的 id；先构建核心再构建它，离线验证的循环里加上它。
-5. 发布时 `release.mjs` 按清单收它的 jar，`--notes` 里要写 `plugins.<插件 id>` 的更新说明，再 `package.mjs`（安装包不带 jar），见[打包和发布](release.md)。
+5. 发布顺序：gradle 构建（核心先）→ `package.mjs` 打安装包（不带 jar，但 `release.mjs` 每次都要读它）→ `release.mjs --notes`（按清单收它的 jar，要写 `plugins.<插件 id>` 的更新说明）→ `publish.mjs`（上传前先问用户），见[打包和发布](release.md)。
 
 ## 接入游戏
 
