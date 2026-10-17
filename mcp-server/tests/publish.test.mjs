@@ -4,23 +4,23 @@ import { parsePublishArgs, publishPlan, filesToUpload } from '../../scripts/publ
 
 test('publish arguments: a target is required, ssh and dir go together and are checked', () => {
   assert.throws(() => parsePublishArgs([]), /--ssh\/--dir 或 --github/);
-  assert.throws(() => parsePublishArgs(['--ssh', 'uma']), /--ssh 和 --dir 要一起写/);
-  assert.throws(() => parsePublishArgs(['--ssh', 'uma; rm', '--dir', 'C:\\site']), /--ssh 只写主机名/);
-  assert.throws(() => parsePublishArgs(['--ssh', 'uma', '--dir', '/var/www']), /Windows 的绝对路径/);
-  assert.throws(() => parsePublishArgs(['--ssh', 'uma', '--dir', "C:\\a'b"]), /特殊字符/);
-  const o = parsePublishArgs(['--ssh', 'uma', '--dir', 'C:\\Users\\me\\Desktop\\site', '--github', '--dry-run']);
-  assert.deepEqual([o.ssh, o.dir, o.github, o.dryRun], ['uma', 'C:\\Users\\me\\Desktop\\site', true, true]);
+  assert.throws(() => parsePublishArgs(['--ssh', 'site-host']), /--ssh 和 --dir 要一起写/);
+  assert.throws(() => parsePublishArgs(['--ssh', 'site-host; rm', '--dir', 'C:\\site']), /--ssh 只写主机名/);
+  assert.throws(() => parsePublishArgs(['--ssh', 'site-host', '--dir', '/var/www']), /Windows 的绝对路径/);
+  assert.throws(() => parsePublishArgs(['--ssh', 'site-host', '--dir', "C:\\a'b"]), /特殊字符/);
+  const o = parsePublishArgs(['--ssh', 'site-host', '--dir', 'C:\\Users\\me\\Desktop\\site', '--github', '--dry-run']);
+  assert.deepEqual([o.ssh, o.dir, o.github, o.dryRun], ['site-host', 'C:\\Users\\me\\Desktop\\site', true, true]);
 });
 
 test('publish arguments: downloads can go to a separate Linux server, but index.json still needs --ssh', () => {
-  assert.throws(() => parsePublishArgs(['--files-ssh', 'hkvps', '--github']), /--files-ssh 和 --files-dir 要一起写/);
-  assert.throws(() => parsePublishArgs(['--files-ssh', 'hkvps', '--files-dir', '/www/wwwroot/mcbot-downloads', '--github']), /还要用 --ssh\/--dir/);
-  assert.throws(() => parsePublishArgs(['--files-ssh', 'hk vps', '--files-dir', '/srv/d', '--ssh', 'uma', '--dir', 'C:\\site']), /--files-ssh 只写主机名/);
+  assert.throws(() => parsePublishArgs(['--files-ssh', 'files-host', '--github']), /--files-ssh 和 --files-dir 要一起写/);
+  assert.throws(() => parsePublishArgs(['--files-ssh', 'files-host', '--files-dir', '/srv/downloads', '--github']), /还要用 --ssh\/--dir/);
+  assert.throws(() => parsePublishArgs(['--files-ssh', 'files host', '--files-dir', '/srv/d', '--ssh', 'site-host', '--dir', 'C:\\site']), /--files-ssh 只写主机名/);
   for (const bad of ['C:\\site', 'srv/d', "/srv/a'b", '/srv/a;rm']) {
-    assert.throws(() => parsePublishArgs(['--files-ssh', 'hkvps', '--files-dir', bad, '--ssh', 'uma', '--dir', 'C:\\site']), /Linux 的绝对路径/);
+    assert.throws(() => parsePublishArgs(['--files-ssh', 'files-host', '--files-dir', bad, '--ssh', 'site-host', '--dir', 'C:\\site']), /Linux 的绝对路径/);
   }
-  const o = parsePublishArgs(['--github', '--files-ssh', 'hkvps', '--files-dir', '/www/wwwroot/mcbot-downloads', '--ssh', 'uma', '--dir', 'C:\\site']);
-  assert.deepEqual([o.filesSsh, o.filesDir, o.ssh, o.dir], ['hkvps', '/www/wwwroot/mcbot-downloads', 'uma', 'C:\\site']);
+  const o = parsePublishArgs(['--github', '--files-ssh', 'files-host', '--files-dir', '/srv/downloads', '--ssh', 'site-host', '--dir', 'C:\\site']);
+  assert.deepEqual([o.filesSsh, o.filesDir, o.ssh, o.dir], ['files-host', '/srv/downloads', 'site-host', 'C:\\site']);
 });
 
 test('files to upload: same name and size is skipped, a different size stops, the rest are uploaded', () => {
