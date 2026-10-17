@@ -131,12 +131,7 @@
 
 ## 九、服务器
 
-- 家里的 Windows 10：nginx 1.28.3 由 nssm 服务 `NginxDerbyHub` 以 SYSTEM 身份运行。SSH 登录发不了 reload 信号，改配置后要 `Restart-Service NginxDerbyHub`（所有走 nginx 的站点会断 1～2 秒，用户 10-14 同意直接重启）。
-- 10-14 已经做了：备份 `conf\nginx.conf.before-mcbot-20261014`，新建 `Desktop\mcbot-dist\`，在 nginx 里加了 `mcbot.muxueuma.com` 的静态站点（`index.json` 不缓存，zip、jar 长期缓存），重启服务后其他站点都正常。本机带 Host 头访问能拿到文件。
-- 10-14 晚已打通。原因：每个子域名都要在阿里云 VPS（宝塔）上有一个站点（终止 HTTPS、Let's Encrypt 证书，反向代理到 frps 的 `127.0.0.1:8880` 并带上 Host），家里 frpc 的 http 代理也要登记这个域名；`mcbot` 两边都没有，就落到了 443 的默认站点 DerbyHub。
-  - VPS：用户在宝塔面板加了站点 `mcbot.muxueuma.com`（纯静态，反向代理 `http://127.0.0.1:8880`、发送域名 `mcbot.muxueuma.com`，Let's Encrypt 证书由面板续期）。本机用 `ssh hkvps`（root，22 端口，钥匙 `~/.ssh/hk_vps`）登录 VPS。
-  - 家里：`frpc.toml`（备份 `frpc.toml.bak-mcbot-20261014`）在 `derbyhub-web` 的 `customDomains` 加了 `mcbot.muxueuma.com`，并打开只听 `127.0.0.1:7400` 的管理接口（账号密码只在 frpc.toml 里），以后改 frpc 配置用 `frpc reload -c frpc.toml`，不用再重启 FrpClient（nssm 服务）断开所有隧道。
-  - 用 Node 的 fetch 从外网读到了测试文件（200，Cloudflare 没有拦），测完删掉了。`index.json` 发布之前返回 404 是正常的。
+服务器的地址、别名和运维记录不放在公开仓库，发布时用参数给（见 `scripts/publish.mjs` 开头的用法）。
 
 ## 不做的
 
