@@ -346,7 +346,7 @@ export function createLauncher({ runtime, isRunning, command = launchCommand(), 
       let child;
       try {
         // 用 Node 直接跑启动脚本，不需要 PowerShell。Windows 上不 detached（以前 detached 的 pwsh 没有控制台会直接退出），
-        // 输出写进日志文件、不占控制台；关掉 WebUI 后托管是否继续见 docs/dev.md 的本地 WebUI。
+        // 输出写进日志文件、不占控制台；关掉 WebUI 后托管是否继续见 docs/webui.md。
         child = spawnImpl(command[0], [...command.slice(1), ...launchArgs(profile, undefined, disabledPlugins(runtime, profile.gameDir, catalog))], {
           cwd: ROOT, detached: process.platform !== 'win32', windowsHide: true, stdio: ['ignore', fd, fd],
           env: { ...process.env, COMPANION_RUNTIME_DIR: runtime },

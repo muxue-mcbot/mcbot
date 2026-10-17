@@ -127,7 +127,7 @@ export function prepareServerPlay(options, { root = ROOT, env = process.env, exe
   const entry = path.join(root, 'client-runtime', 'dist', 'main.js');
   const prepareOnly = !!options['prepare-only'];
   if (!prepareOnly && !fs.existsSync(entry)) throw new Error('未找到运行端：请先在 client-runtime 目录运行 npm install 和 npm run build');
-  // dsh 用 DeepSeek Harness 桌面版自带的，或 runtime/dsh 的锁定安装（见 docs/dev.md）；DeepSeek 凭据用 DEEPSEEK_API_KEY 或 dsh 自己的凭据配置提供，这里不读取。
+  // dsh 用 DeepSeek Harness 桌面版自带的，或 runtime/dsh 的锁定安装（见 docs/dsh.md）；DeepSeek 凭据用 DEEPSEEK_API_KEY 或 dsh 自己的凭据配置提供，这里不读取。
   if (agent === 'dsh' && !prepareOnly && !env.MCBOT_DSH_BIN) {
     const dshBin = path.join(runtimeDir(root, env), 'dsh', 'node_modules', '@deepseek-ai', 'dsh', 'lib', 'bin.js');
     const desktop = env.MCBOT_DSH_DESKTOP || path.join(env.LOCALAPPDATA || '', 'Programs', 'DeepSeek Harness');
