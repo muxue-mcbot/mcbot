@@ -53,7 +53,7 @@ ServerBody 从 2026-10-12 起接上长期记忆（下面第①～③步已写完
 
 ### 实现情况（2026-10-12，①～③）
 
-接口细节见[协议的长期记忆一节](server_body_protocol.md#长期记忆运行端和驱动器2026-10-12)。和上面写法的出入：
+接口细节见下面的[接口](#接口)（2026-10-18 从协议移来，协议本身不涉及记忆）。和上面写法的出入：
 
 - 复用而不是复制：`MemoryStore` 整个搬进 `client-runtime/src/memory.ts`，`mcp-server/src/memory.ts` 只转出（`mcp-server` 构建时先构建运行端），一份代码两条路径用，旧测试原样通过。驱动器不能引用 `scripts/` 以外的模块（打包规则），所以上限放进 `client-runtime/memory-limits.json`，运行端、驱动器、WebUI 读同一份，打包时一起带上。
 - 约定没有单独一段，沿用旧的 `goals`（提示词里标题叫「约定和想做的事」）；玩家档案的上限用 `goals` 的（同是开局常驻的短清单），没有另起数字。
@@ -65,3 +65,17 @@ ServerBody 从 2026-10-12 起接上长期记忆（下面第①～③步已写完
 - 整理会话改段落用 `memory-write` 的新增／更新／删除，每条新增和更新写成 `- [事实|玩家说|感受] 内容 〔日志游标〕`（回忆和玩家档案的行由程序加上世界：`〔<世界> <游标>〕`）；旧的整段覆盖写法只留给旧路径。
 - 工具：托管时给模型 `memory-note`（记一句，最多 300 字）和 `memory-recall`（查这个世界的日志，默认 40 条、最多 200 条）；整理会话只有 `memory-context`（读当前记忆）、`memory-recall` 和 `memory-write`（一次最多 64 条改动）。每段的字数上限、开局带几行日志、写锁的等待和过期时间都在 `client-runtime/memory-limits.json`，运行端、驱动器、WebUI 读同一份。
 - 还没经过真实模型和游戏：整理质量、交接单在真实换会话时够不够用、三家 Agent 另起会话的额度消耗，要等试玩。
+
+### 接口
+
+- 开关：`<记忆目录>/<游戏名小写>/persona.md` 存在才开；没有记忆目录或人设时运行端不记日志、不发布记忆工具，驱动器提示词里没有【长期记忆】，行为和以前一样（交接单照旧，它只用运行端的状态文件）。运行端只在 `--hosted` 且 `hello.backend` 为 `server` 时记日志，开发时直接起的 MCP、`--respawn-only` 都不记。
+- 记忆代码：旧 `mcp-server/src/memory.ts` 搬到 `client-runtime/src/memory.ts`（`MemoryStore`），旧路径只剩一行转出，Mineflayer 旧路径照用。上限在 `client-runtime/memory-limits.json`（各段字数沿用旧 `SECTION_LIMITS`、开局列多少条日志、写锁时长），运行端、驱动器、WebUI 读同一份。
+- 归属（10-13 起按世界隔离）：
+  - 只属于一个世界：约定和想做的事 `goals.md`、最近几天 `digest.md`、日志 `journal/`、整理进度 `state.json`，放在 `<游戏名小写>/worlds/<世界标识>/`；世界现状 `shared/worlds/<世界标识>.md`，同一世界的角色共用。世界标识的转义在地点簿的基础上（Windows 不能用的字符转成 `%xx`）再转义 `.` 和 `..`、结尾的点和空格、Windows 保留设备名（CON、NUL、COM1 等，转义第一个字母），免得手写的 `worldId` 让目录落到上层；正常的标识（`sp-新的世界`、`srv-1a2b3c4d`）转义结果不变，运行端和驱动器各有一份规则，测试对一批输入比较两边。换了世界，开局加载、`memory-recall`、整理都只看这个世界的，不会提别的世界的家、去兑现别的世界的约定。
+  - 所有世界共用：人设 `persona.md`、回忆 `bonds.md`（`<游戏名小写>/`）、玩家档案 `shared/players/<玩家>.md`（各角色也共用）。整理写进回忆和玩家档案的每一行，依据前自动加上世界标识，比如 `〔sp-家园 2026-10-12#3〕`。
+  - 旧 Mineflayer 路径没有世界标识，仍是原来的不分世界写法：都在 `<角色>/` 下，世界现状 `shared/world.md`。
+- 自动日志：运行端从事件里记聊天（Bot 自己说的话以服务端确认的 `self_chat` 为准，`since()` 不返回它，不叫醒模型）、进服、断开、死亡（`hello.lastDeath`，按时刻去重，只记一次）、收到的东西、睡觉（Bot 从醒到睡发一条 `sleep` 事件）、玩家上下线（有 `far-players` 时按附近实体加 `farPlayers` 比较，接管时的第一次只当基准，发 `player_joined`／`player_left`，不叫醒模型），任务按工具表里 `task` 类的结束回执记一句。挑什么记沿用旧 `journalLineFor`。
+- 模型工具：托管时多 `memory-note`、`memory-recall`（工具表 `read` 类，不占身体）。整理用的 `memory-context`、`memory-recall`、`memory-write` 只在 `--memory-only` 进程里发布，那个进程不连游戏。
+- 写：所有写都拿 `<记忆目录>/.write.lock`（同一台机器上多个托管、WebUI 删行共用），改段前备份到 `runtime/memory-backup/`。`memory-write` 每条只能新增、更新、删除，行号按非空行数；新增和更新要写类别（事实／玩家说／感受）和依据的日志游标，游标须真实存在；超上限且比原来长的拒绝；`through` 写进这个世界的 `state.json`，不能往回退。
+- 交接单（驱动器 `buildHandoff`，不经模型）：换会话和接旧状态的首次启动时放进新会话第一轮。内容来自 `activity-<名字>.jsonl`（最后一个任务类工具调用、聊天；启动时满 5MB 轮转出的 `.1` 也一起读，轮转那次的交接单不丢上次的任务）、`operations-<名字>.jsonl`（它的结果）、`posture-<名字>.json`（跟随还是等待、跟谁），每条带时间；玩家叫停（会话文件的 `lastStopAt`：撤销控制的叫停，和游戏里原地「取消」——运行端的 `player_stop` 事件带 `stop:"cancel"`、`player`，驱动器按事件时间记；`stop:"pause"` 的暂停不记）之前的任务标「已取消，不要自己恢复」，叫停前的姿态和聊天不列。三份记录每行都带世界标识（`world`，10-13 起；活动记录由驱动器写、操作结果和姿态由运行端写），交接单只拿当前世界的，没标世界的旧记录不拿；运行端接姿态时也一样，别的世界的跟随／等待不接。
+- 整理（驱动器 `scripts/driver/consolidation.mjs` 里 `createConsolidation` 的 `startSide`）：躺床、玩家都下线了、换会话前、启动时有没整理的日志，用同一个 Agent 和账号另起一个一次性会话，MCP 配置写到 `runtime/mcp-memory-<名字>.json`，只给记忆工具；不打断、不加长正在玩的会话。额度用完或认证失败按恢复时刻（认不出时用暂停时长）再来，其他失败最多再试几次；`state.json` 的 `consolidatedAt` 前进才算成功。三家（Claude、Codex、dsh）都能另起会话，没有退回会话内整理的情况。
