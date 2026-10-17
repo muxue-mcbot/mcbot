@@ -87,7 +87,7 @@ Bot 默认只会用原版的箱子、木桶、漏斗、发射器、潜影盒、�
 
 注意：
 
-- 实测过的例子（森罗厨房 1.6.0）：油壶不分面；石磨只有上面能放、什么面都取不出；竹筛没有不分面的，只按面给，没晒好的东西取不出。取不出但机器里有这种东西时，回执的 `withheld` 写着有几个，换个面或等做好再来。
+- 实测过的例子（森罗厨房 1.6.0）：油壶不分面；石磨只有上面能放、什么面都取不出；竹筛没有不分面的，只按面给，没晒好的东西取不出；茶壶没灌水时不收料。取不出但机器里有这种东西时，回执的 `withheld` 写着有几个，换个面或等做好再来。
 - 通用适配不知道哪一格是原料、哪一格是成品，也不知道要烧多久；“放好就走、到时回来取”目前只对内置的熔炉类和酿造台（见 `smelt-item`、`produce-item`），通用物品槽的机器没有。
 - 问保护模组让不让用，是真的发一次右键方块事件（不真的右键）。有的模组监听这个事件自己做事（比如右键收割），对机器一般不会，但没实测过。
 - 10-09 在森罗厨房 1.6.0 上隔离服实测过（`scripts/server-machine-items-smoke.mjs` 26 项）；别的模组没测，开哪个 Mod 之前，服主最好自己先试一下放取。
@@ -122,7 +122,7 @@ Bot 默认只会用原版的箱子、木桶、漏斗、发射器、潜影盒、�
 
 - `WorkstationAdapter`（`api.workstation` 包，10-07 新增，[设计](workstation_design.md)）：工作站。适配者只说明是哪个方块和界面、哪个格子是什么端口（原料、燃料、成品等）、配方从哪来、用哪种执行模板（`GRID_CRAFTER` 合成网格、`PROCESSOR` 放料→等→取的机器：只有一个原料格的走 `smelt-item`，附属模组的多原料机器走 `produce-item`，见下；另有 `OPTION_PICKER`、`IN_PLACE`、`MODIFIER`，目前只有原版切石机、酿造台、附魔台等内置适配在用，附属模组登记这三种还不会被 produce-item／modify-item 选中）；走过去、开界面、点格子、等待和核对都由核心做。登记后 `craft-item`、`smelt-item`（多原料的是 `produce-item`）会自动用上，附属模组的工作站 id 经 `hello.workstations` 下发。可选的 `progress(level,pos,state)`（10-09 加，8b）不开界面读机器的内容和进度（`StationProgress`：待加工的、成品、燃料、在不在工作、还要多少 tick、燃料够多少 tick），只读，什么都不能改；实现了它，Bot 放料不等时运行端到时间能读出真实进度（还在烧就再等、没燃料就提醒），没实现就只按时间估。原版熔炉、烟熏炉、高炉已实现。原版方块只由内置适配处理，附属模组不能接管。用 `McbotApi.registerWorkstation` 登记。这个包只用原版和 JDK 类型，以后的 Fabric 版也用同一套接口。
 
-  多原料的 `PROCESSOR`（10-16 加，8c，只离线检查过）：几个原料格，可再有容器格（`CONTAINER`，比如碗）和只看不拿的 `BUFFER`（做好了等容器的那份）。配方用 `StationRecipe.shapeless(id, 成品, 原料, 容器, tick, 经验)`：原料不分顺序、一格一种，`container` 是每份要放进容器格的东西，不要就 `ItemStack.EMPTY`。可选 `notReady(menu)` 返回现在为什么做不了（比如没热源），核心报 STATION_NOT_READY；`working(menu)` 用来确认放进去后真的开始了，3 秒内没开始就全部拿回、报 RECIPE_REFUSED。核心把背包里的原料按格分好、容器放进容器格，看到开始做就走（`wait:true` 时等着取），回执带 `cooking`，运行端照熔炉记账、到时间读 `progress`。机器里已经有原料时只有正好是这道菜一份配方的才当作在做这道菜（还在做报 STILL_COOKING，做好了就取），别的菜不碰。范例是农夫乐事附属模组的 `CookingPotStation`。
+  多原料的 `PROCESSOR`（10-16 加，8c，农夫乐事厨锅隔离服实测过）：几个原料格，可再有容器格（`CONTAINER`，比如碗）和只看不拿的 `BUFFER`（做好了等容器的那份）。配方用 `StationRecipe.shapeless(id, 成品, 原料, 容器, tick, 经验)`：原料不分顺序、一格一种，`container` 是每份要放进容器格的东西，不要就 `ItemStack.EMPTY`。可选 `notReady(menu)` 返回现在为什么做不了（比如没热源），核心报 STATION_NOT_READY；`working(menu)` 用来确认放进去后真的开始了，3 秒内没开始就全部拿回、报 RECIPE_REFUSED。核心把背包里的原料按格分好、容器放进容器格，看到开始做就走（`wait:true` 时等着取），回执带 `cooking`，运行端照熔炉记账、到时间读 `progress`。机器里已经有原料时只有正好是这道菜一份配方的才当作在做这道菜（还在做报 STILL_COOKING，做好了就取），别的菜不碰。范例是农夫乐事附属模组的 `CookingPotStation`。
 
 - `EmoteSource`（10-08 新增，第 8j 步）：别的 Mod 提供的身体动画，比如玩家模型 Mod 的动作。AI 用 `emote` 工具，`source` 填来源 id、`name` 填动画名。核心先检查名字只含 `[A-Za-z0-9_.:-]`、最长 64，再问 `accepts`；开始时调 `play`，到 `seconds`（默认 6 秒，1～30）、Bot 开始做别的事（说话和转头除外）或下线时调 `stop`，因为模型动画一般会一直循环。`hint()` 是给 AI 看的一句说明，会写进 `emote` 工具的说明里。用 `McbotApi.registerEmotes` 登记。没有来源时，`emote` 只有内置的原版手势：wave、nod、shake、crouch、jump、spin。
 - `AppearanceSource`（10-08 新增）：Bot 的样子，比如玩家模型 Mod 的模型。`choices` 列出服务器上可选的（只读）；托管的人在 WebUI 里选一个，运行端每次接管后用 `set-appearance` 动作套用一次（`apply`）。AI 不能改，MCP 也不发布这个动作。用 `McbotApi.registerAppearance` 登记。
@@ -148,7 +148,7 @@ public final class McbotExampleCook {
 - [mcbot-kaleidoscope-cookery](../mods/mcbot-kaleidoscope-cookery/README.md)：独立的附属模组。用森罗厨房的炒锅做菜，包括放油、加料、翻炒、出锅四个交互。
 - [mcbot-sophisticated-backpacks](../mods/mcbot-sophisticated-backpacks/README.md)：独立的附属模组。打开手里的背包（对空使用）、把放在地上的背包当容器（物品处理器型存储）、拾取升级的记账（`PickupSink`）。
 - [mcbot-yes-steve-model](../mods/mcbot-yes-steve-model/README.md)：独立的附属模组。YSM 的模型（`AppearanceSource`）和动画（`EmoteSource`），只执行 YSM 自己的服务端指令。
-- [mcbot-farmers-delight](../mods/mcbot-farmers-delight/README.md)：独立的附属模组（10-16，只离线检查过）。砧板、宴席、派的右键交互（按当时状态给预期范围），番茄藤的 `CropRule`，厨锅是多原料 `PROCESSOR`。
+- [mcbot-farmers-delight](../mods/mcbot-farmers-delight/README.md)：独立的附属模组（10-16 起，锁 1.2.9；隔离服 62 项通过，还没用真实模型试玩）。砧板、宴席、派、炉灶、平底锅、蘑菇菌落的右键交互（按当时状态给预期范围），橱柜和篮子是 `ContainerAdapter`，番茄藤的 `CropRule`，厨锅是多原料 `PROCESSOR`。
 
 ### 插件说明（registerHint）
 

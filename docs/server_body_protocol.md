@@ -548,7 +548,7 @@ ServerBody 取得租约后，将本机 `runtimeDir/server-control-<username>.jso
 
 ## 手持物品使用
 
-设计记录见[手持物品使用设计](use_item_design.md)，实测见[验收记录](archive/use_item_validation.md)。
+设计记录见[手持物品使用设计](archive/use_item_design.md)，实测见[验收记录](archive/use_item_validation.md)。
 
 - `hello` 新增 `interactions`：当前已安装、版本核对通过的交互 ID 列表。只有存在方块类交互时才声明 `use-item-on-block`，只有存在物品类交互时才声明 `use-item`。首批内置 `minecraft:composter/add`（拿可堆肥物品右键堆肥桶），没有物品类交互，所以不声明 `use-item`。
 - `use-item-on-block`：`{x,y,z,interaction,expectedBlock,expectedProperties,face?,timeoutMs?}` 加上二选一的手持守卫：`{slot:0..8,expectedItem,expectedCount>0,expectedComponents}`，或 `{emptyHand:true}`（只有交互声明必须空手时才允许，服务端自己挑空快捷栏槽，用完切回原来的选中槽）。不支持 `targetToken`。

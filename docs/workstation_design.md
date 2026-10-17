@@ -124,20 +124,4 @@
 
 ## 进度
 
-- **A（10-07 完成）**：见交付计划 8l。
-- **B、C（10-07 完成）**，实现时的取舍：
-  - 模板加了 `OPTION_PICKER`、`IN_PLACE`、`MODIFIER`；适配接口加了 `options`（按钮选项）、`levelCost`、`fuelLeft`（10-09 又加了可选的 `progress`，不开界面读进度，见 8b），配方来源加了 `isIngredient`、`transform`（原地变化，酿造用）。原版切石机、酿造台、附魔台、铁砧（三种破损程度）、砂轮、锻造台、织布机、制图台都是内置适配。
-  - 工具按设计是 `workstation-options`、`produce-item`、`modify-item`。预览不另开工具：`modify-item` 带 `preview:true` 就是预览，走过去、放进去、读结果和花费、全部拿回。
-  - 物品引用（ref）是随机串，绑定那一格和那一叠的完整内容；预览或被拒绝后东西拿回来可能换了格子，ref 跟着指到拿回后的那一格（内容必须完全一样），提交后作废。
-  - 花经验的确认：工具说明和启动 prompt 要求模型先预览、告诉玩家花多少级、玩家同意后再做，服务端只按 `maxLevels` 卡上限、按 `expect` 卡结果。设计里说的“来自玩家或服主的可信确认”还没做，现在模型自己传的 maxLevels 就是放行条件。也就是说，“先预览、问过玩家再做”目前只是提示词约定，程序不验证玩家是否真的同意。
-  - 酿造的规划：从背包里的瓶子出发，用背包里的材料，广度优先找最多 4 段；找不到时改用所有能当酿造材料的物品再找一次，只用来说明缺什么。烈焰粉可能被当成材料用掉（例如力量药水），燃料不足时报 NO_FUEL。
-  - 回执的物品计数改成带组件的写法（`ItemDescriptions.key`），craft-item、smelt-item 的回执还是旧写法没动。“交付／消耗／产出”三者分开的字段没做，现在用 `inventoryChange` 加各自的 `made`、`stagesDone`、`leftInStation`。
-  - 实测时发现：酿造要站着等 40 秒，期间运行端的后台观察读到“非储物界面”就报错，整个控制权被结束。改成 Bot 自己正在用的、适配器认得的工作站界面可以只读观察，`click-slot` 仍然不能点它。
-  - 材料分配换成全局求解（约束最强的格先选，选不下去就回退）。
-- **D（进行中，10-16 起，只离线）**：8c 农夫乐事。
-  - 核心：`PROCESSOR` 支持多原料。`StationRecipe` 加了容器（`shapeless` 构造），适配接口加了可选的 `notReady`；`produce-item` 没有切石或酿造配方时找附属模组的多原料 `PROCESSOR`，原料按格分好、容器放进容器格，3 秒内看到开始做就走，回执 `cooking:true` 交给运行端记账；再调一次取出来。`smelt-item` 遇到多原料格的机器跳过，让模型用 `produce-item`。机器里已有原料时，只有正好是这道菜一份配方的（`MaterialAllocator.oneSet`）才算在做这道菜。
-  - 砧板不走工作站模板：它是右键交互（放料、切、取回），成品掉在地上由交互的掉落观察核对，和设计里写的一样。
-  - 关掉「给 AI 用」的插件：hello 的 `workstations` 去掉它，运行端在四个工作站工具的参数里带 `skipStations`。
-  - 10-16 隔离服实测（`server-farmers-delight-smoke.mjs` 57 项）：厨锅缺料、没热源、拿着碗放好就走、来早了、machine 事件、取出、`wait:true`、近的锅有别的菜就换一口、关掉插件后 `skipStations` 都通过；砧板、宴席、派、番茄、炉灶、平底锅、蘑菇菌落、橱柜、篮子、卷心菜、洋葱、稻米也一起测了；10-17 补上炉灶直接烤后 62 项通过。
-  - 炉灶和平底锅不走工作站模板：它们没有界面，食材右键放进去、烤好掉在地上，按交互（`stove/add`、`stove/light`、`skillet/add`、`skillet/take`）接入。在炉灶上直接烤的留在炉灶顶上：核心只在捡东西时允许站到点着的炉灶旁边（一格内有火或岩浆仍然不进），见 `server_body_protocol.md` 导航那段。
-  - 还没做：Iron Furnaces 迁到 `PROCESSOR`、JSON 声明。
+A～C 10-07 完成；D 进行中：8c 农夫乐事已合进 main（厨锅是多原料 `PROCESSOR`，砧板、炉灶、平底锅走右键交互），Iron Furnaces 迁到 `PROCESSOR` 和 JSON 声明没做；E 随 8b。进度和证据见[交付计划](delivery_plan.md)，各阶段实现时的取舍和实测记录在 git 历史（278f408 版本的本文）。和设计的出入里还没做的：花经验的“玩家或服主的可信确认”（现在只按模型传的 `maxLevels`、`expect` 卡）、回执里交付／消耗／产出分开的字段（现在用 `inventoryChange` 加各自的 `made`、`stagesDone`、`leftInStation`）。
