@@ -5,8 +5,8 @@
 // - 服务器（--ssh、--dir；对方是 Windows 的 OpenSSH，默认 shell 为 PowerShell）：已有同名同大小的文件跳过，同名大小不同就停下（发布过的文件不能换内容）；
 //   先传 app/、core/、plugins/ 里的文件和网站首页 index.html，最后传 index.json（先传成 .tmp 再改名，WebUI 不会读到半截的清单）。
 // - 下载文件另放（--files-ssh、--files-dir；对方是 Linux，目录写绝对路径）：app/、core/、plugins/ 里的文件只传到这里，--ssh 的服务器只换网站首页和 index.json。
-//   2026-10-15 起下载放阿里云 VPS（hkvps 的 /www/wwwroot/mcbot-downloads，那里的 nginx 没有的文件转回家里），网页和清单仍在家里：
-//   node scripts/publish.mjs --github --files-ssh hkvps --files-dir /www/wwwroot/mcbot-downloads --ssh uma --dir <家里的站点目录>
+//   下载文件和网页、清单分开放时（服务器的别名和目录不写进仓库，跑的时候用参数给）：
+//   node scripts/publish.mjs --github --files-ssh <下载服务器别名> --files-dir <下载目录> --ssh <站点服务器别名> --dir <站点目录>
 //   每个文件先传成 .part 再改名，nginx 不会把半截的文件发出去（也就不会被 Cloudflare 缓存）。
 // - GitHub（--github，用 gh 登录的账号；仓库见 webui-update.mjs 的 GITHUB_REPO）：每个 tag 一个 Release（app-v<版本> 放安装包和核心 jar，
 //   <插件 id>-v<版本> 放插件 jar），已有的只补缺的文件；固定的 index Release 每次覆盖 index.json。tag 打在当前提交上，提交要先推送。

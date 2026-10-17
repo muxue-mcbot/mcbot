@@ -1,6 +1,8 @@
 # 设计：手持物品使用（交付计划第 1 步）
 
-2026-10-06 定稿并实现（用户确认按推荐做：内置堆肥桶测试交互、只加一个 `interact-block` 工具、森罗厨房用反射适配）。实测见 [验收记录](archive/use_item_validation.md)；实现时的调整：失败回执不带 inventory，`use-item` 只在有物品类交互时才声明。目标是给 ServerBody 加两个通用能力，为森罗物语：厨房和 Sophisticated Backpacks 的适配打底：
+> 2026-10-18 归档：这是 10-06 的设计记录，§7（Node 和 MCP）和 §8（测试）里有和后来实现不一致的说法。现行规则见[控制协议](../server_body_protocol.md#手持物品使用)。
+
+2026-10-06 定稿并实现（用户确认按推荐做：内置堆肥桶测试交互、只加一个 `interact-block` 工具、森罗厨房用反射适配）。实测见 [验收记录](use_item_validation.md)；实现时的调整：失败回执不带 inventory，`use-item` 只在有物品类交互时才声明。目标是给 ServerBody 加两个通用能力，为森罗物语：厨房和 Sophisticated Backpacks 的适配打底：
 
 - **对方块使用**（`use-item-on-block`）：手持某个物品（或空手）右键某个方块，比如往炒锅里放油、加料、拿锅铲翻炒、出锅。
 - **对空使用**（`use-item`）：手持物品右键空气，比如打开手里的背包。
@@ -98,7 +100,7 @@
 
 ## 6. 适配器接口（首批，放在核心模组里）
 
-先放在 `mcbot-server-control` 内部，第 7 步（R5）再拆成可以独立打包的附属模组和 JSON 配置。10-06 已完成：交互接口移到公开包 `com.mcbot.servercontrol.api.ItemInteraction`，见 [Mod 适配接口](mod_adapters.md)。
+先放在 `mcbot-server-control` 内部，第 7 步（R5）再拆成可以独立打包的附属模组和 JSON 配置。10-06 已完成：交互接口移到公开包 `com.mcbot.servercontrol.api.ItemInteraction`，见 [Mod 适配接口](../mod_adapters.md)。
 
 ```java
 interface InteractionAdapter {
@@ -144,7 +146,7 @@ record Interaction(
 2. 拿物品右键箱子（没登记）：返回 `UNSUPPORTED`，箱子没打开，物品没变。
 3. 用现有测试夹具 `ValidationProtection`（放钻石块当标记，取消右键事件）保护堆肥桶，再右键：返回 failed（`FORBIDDEN`），什么都没变。
 4. 执行中叫停：发包前叫停 → 不执行；发包后叫停 → 结果照常回报。
-5. `use-item` 的实服测试等第 8 步装上 SB 背包再做；首批只做离线测试。（10-06 已用 SB 背包实服验收，见 [SB 附属模组](../mods/mcbot-sophisticated-backpacks/README.md)。实际做法和这里不同：`use-item` 也做成了 MCP 工具，只在装了对空使用的交互时发布，因为背包打开后由 AI 自己存取，10-12 起用 `container-menu`，当时是 `get-container`、`click-slot`。）
+5. `use-item` 的实服测试等第 8 步装上 SB 背包再做；首批只做离线测试。（10-06 已用 SB 背包实服验收，见 [SB 附属模组](../../mods/mcbot-sophisticated-backpacks/README.md)。实际做法和这里不同：`use-item` 也做成了 MCP 工具，只在装了对空使用的交互时发布，因为背包打开后由 AI 自己存取，10-12 起用 `container-menu`，当时是 `get-container`、`click-slot`。）
 
 ## 9. 要确认的事
 

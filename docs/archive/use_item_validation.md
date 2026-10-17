@@ -1,6 +1,6 @@
 # 手持物品使用：验收记录（2026-10-06）
 
-对应 [设计](../use_item_design.md)、[交付计划](../delivery_plan.md) 第 1 步。
+对应 [设计](use_item_design.md)、[交付计划](../delivery_plan.md) 第 1 步。
 
 ## 结论
 

@@ -2,7 +2,8 @@ package com.mcbot.servercontrol.api.workstation;
 
 /**
  * How the core drives a workstation. Adapters pick one; the core does all walking, clicking, waiting and checking.
- * More templates (option buttons, in-place brewing, modifying gear) come with the stations that need them.
+ * OPTION_PICKER, IN_PLACE and MODIFIER are used by the built-in vanilla stations only; produce-item and
+ * modify-item do not pick an add-on station registered with them yet.
  */
 public enum Template {
     /**

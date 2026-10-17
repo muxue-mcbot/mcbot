@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// 常驻保护打断任务实测（8m 第一步第二块，docs/companion_state_design.md 5.4）：隔离服高空平台上，测试玩家 C2Tester 站着，
+// 常驻保护打断任务实测（8m 第一步第二块，docs/companion_state_design.md 5.2，现行的打断表在 docs/server_body_protocol.md 的常驻保护）：隔离服高空平台上，测试玩家 C2Tester 站着，
 // Claude 原地等待并用 companion-mode guard 保护它。
 //   1. 等待中，玩家身边 6 格不动的尸壳：走过去打死，打完回到原来站的地方附近；
 //   2. 地面上盖一排圆石（build）途中，玩家身边刷尸壳：停下去打，打完接着盖，全部盖对、没有 TIMEOUT；
