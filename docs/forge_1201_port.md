@@ -126,7 +126,11 @@ $env:JAVA_HOME = 'D:\Java\jdk-21'
   - content：`custom_data`；
   - station、machine-wait：酿造、附魔台；
   - navigation-defense、survival-alpha：防身武器、吃东西、穿戴；
-  - guard 系列：武器和盾牌的检查。
+  - guard 系列、hunt：武器和盾牌的检查；
+  - pillar：蓝图里的方块 id；
+  - resource-tags、mod-resources：资源选择器和掉落（`ResourceLocation`、精准采集的测试工具）；
+  - workstation、review-fix：熔炉的存档数据、放料的堆叠上限。
+- `assess-armour`（`ArmourAssessment` 读盔甲点数、诅咒、绑定）没有实测脚本，`ArmourChoiceTest` 只测判断，不读物品。实测全过也不代表它验过。
 
 **两版输出要一样**
 - `ItemDescriptions.key` 和 `describe`、回执和观察的 JSON，在 1.20.1 上要和 1.21.1 一字不差（`potion=`、`enchantments=`、`damage=`、`name=`、`repairCost=`），因为运行端和它的测试按这些字符串认。
