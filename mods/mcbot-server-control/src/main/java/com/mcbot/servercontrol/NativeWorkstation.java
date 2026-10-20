@@ -118,7 +118,7 @@ final class NativeWorkstation {
         Vec3 aim=shape.isEmpty()?Vec3.atCenterOf(pos):shape.bounds().move(pos).getCenter();
         BlockHitResult hit=player.serverLevel().clip(new ClipContext(player.getEyePosition(),aim,ClipContext.Block.OUTLINE,ClipContext.Fluid.NONE,player));
         if(hit.getType()!=HitResult.Type.BLOCK||!hit.getBlockPos().equals(pos))throw error("NO_LINE_OF_SIGHT","Workstation is obstructed");
-        if(player.getEyePosition().distanceTo(hit.getLocation())>player.blockInteractionRange())throw error("OUT_OF_REACH","Workstation is out of reach");
+        if(player.getEyePosition().distanceTo(hit.getLocation())>Version.blockReach(player))throw error("OUT_OF_REACH","Workstation is out of reach");
         look(player,hit.getLocation());
         player.connection.handleUseItemOn(new ServerboundUseItemOnPacket(InteractionHand.MAIN_HAND,hit,++sequence));
     }

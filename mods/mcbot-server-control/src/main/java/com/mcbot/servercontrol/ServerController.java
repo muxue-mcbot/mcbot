@@ -5,11 +5,9 @@ import com.mojang.authlib.GameProfile;
 import net.minecraft.ChatFormatting;
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.registries.BuiltInRegistries;
-import net.minecraft.network.DisconnectionDetails;
 import net.minecraft.network.chat.Component;
 import net.minecraft.server.MinecraftServer;
 import net.minecraft.server.level.*;
-import net.minecraft.server.network.CommonListenerCookie;
 import net.minecraft.world.entity.Entity;
 import net.minecraft.world.entity.item.ItemEntity;
 import net.minecraft.world.damagesource.DamageSource;
@@ -134,7 +132,7 @@ final class ServerController implements ControlSession.Game {
         return session.call(method,params);
     }
     private HostingRules.Host host() {
-        return new HostingRules.Host(server.isDedicatedServer(),server.isPublished(),server.isPaused(),server.getPlayerList().isAllowCommandsForAllPlayers());
+        return new HostingRules.Host(server.isDedicatedServer(),server.isPublished(),Version.paused(server),Version.commandsForAllPlayers(server));
     }
     private boolean forbiddenOp(GameProfile profile) {
         return HostingRules.forbiddenOp(host(),server.getPlayerList().isOp(profile),server.getPlayerList().getOps().get(profile)!=null);
@@ -166,10 +164,9 @@ final class ServerController implements ControlSession.Game {
         if(forbiddenOp(profile)) throw error("FORBIDDEN","Server body refuses an OP identity");
         boolean persisted=Files.exists(server.getWorldPath(LevelResource.PLAYER_DATA_DIR).resolve(config.uuid()+".dat"));
         sink=new VirtualConnection(); player=new BodyPlayer(server,server.overworld(),profile,this);
-        CommonListenerCookie cookie=CommonListenerCookie.createInitial(profile,false);
         try {
-            server.getPlayerList().placeNewPlayer(sink,player,cookie);
-            player.connection=new VirtualGameListener(server,sink,player,cookie); sink.setVirtualListener(player.connection);
+            GameListenerBase.placeNewPlayer(server,sink,player);
+            player.connection=new VirtualGameListener(server,sink,player); sink.setVirtualListener(player.connection);
             survival=new SurvivalActions(player,session,targets,resources);
             if(!player.isAlive()) {
                 // Keep vanilla's dead body for explicit PERFORM_RESPAWN, never grant an action lease.
@@ -917,7 +914,7 @@ final class ServerController implements ControlSession.Game {
         if(old!=null) {
             old.stopInput();
             if(old.connection instanceof VirtualGameListener listener) listener.clearPendingMotion();
-            if(server.getPlayerList().getPlayer(config.uuid())==old) old.connection.onDisconnect(new DisconnectionDetails(Component.literal("MCBOT server body removed")));
+            if(server.getPlayerList().getPlayer(config.uuid())==old) GameListenerBase.disconnect(old.connection,Component.literal("MCBOT server body removed"));
             else if(!old.isRemoved()) { old.serverLevel().removePlayerImmediately(old,Entity.RemovalReason.DISCARDED); old.getTextFilter().leave(); }
         }
         if(oldSink!=null) oldSink.closeSink();

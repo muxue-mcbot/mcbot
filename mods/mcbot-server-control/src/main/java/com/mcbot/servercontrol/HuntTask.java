@@ -14,7 +14,6 @@ import net.minecraft.world.entity.Mob;
 import net.minecraft.world.entity.animal.IronGolem;
 import net.minecraft.world.entity.boss.enderdragon.EnderDragon;
 import net.minecraft.world.entity.monster.*;
-import net.minecraft.world.entity.monster.breeze.Breeze;
 import net.minecraft.world.entity.monster.warden.Warden;
 import net.minecraft.world.entity.player.Inventory;
 import net.minecraft.world.inventory.ClickType;
@@ -95,7 +94,7 @@ final class HuntTask implements BodyTask {
     static boolean pillarable(LivingEntity e) {
         if(!(e instanceof IronGolem||e instanceof Enemy))return false;
         if(e instanceof RangedAttackMob||e instanceof CrossbowAttackMob||e instanceof SpellcasterIllager||e instanceof FlyingMob||e instanceof Creeper)return false;
-        if(e instanceof Blaze||e instanceof Shulker||e instanceof Vex||e instanceof Breeze||e instanceof Warden||e instanceof Guardian||e instanceof Spider||e instanceof EnderMan||e instanceof EnderDragon)return false;
+        if(e instanceof Blaze||e instanceof Shulker||e instanceof Vex||Version.breeze(e)||e instanceof Warden||e instanceof Guardian||e instanceof Spider||e instanceof EnderMan||e instanceof EnderDragon)return false;
         return !e.isHolding((Predicate<ItemStack>)s->s.getItem() instanceof ProjectileWeaponItem||s.getItem() instanceof TridentItem);
     }
     private List<LivingEntity> candidates(){return candidates(pillarMode);}
@@ -182,7 +181,7 @@ final class HuntTask implements BodyTask {
         }
         LivingEntity chased=target;
         if(pillarMode){standTick(chased);return;}
-        if(player.canInteractWithEntity(chased,0)&&player.hasLineOfSight(chased)) {
+        if(Version.canReachEntity(player,chased)&&player.hasLineOfSight(chased)) {
             stopWalking();player.stopInput();
             if(player.getAttackStrengthScale(0.5f)<1f)return;
             strike(chased);return;
@@ -206,7 +205,7 @@ final class HuntTask implements BodyTask {
      */
     private void standTick(LivingEntity chased) {
         if(phase==Phase.UP) {
-            if(player.canInteractWithEntity(chased,0)&&player.hasLineOfSight(chased)) {
+            if(Version.canReachEntity(player,chased)&&player.hasLineOfSight(chased)) {
                 player.stopInput();
                 if(player.getAttackStrengthScale(0.5f)<1f)return;
                 strike(chased);return;

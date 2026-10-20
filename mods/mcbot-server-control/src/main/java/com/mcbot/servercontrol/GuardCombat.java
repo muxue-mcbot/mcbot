@@ -505,7 +505,7 @@ final class GuardCombat {
         if(entity instanceof Player||entity instanceof ArmorStand||entity instanceof Npc||entity instanceof Allay)return true;
         if(entity instanceof AbstractGolem&&!(entity instanceof Enemy))return true;
         if(entity instanceof OwnableEntity owned&&owned.getOwnerUUID()!=null)return true;
-        if(entity instanceof Leashable leashed&&leashed.isLeashed())return true;
+        if(Version.leashed(entity))return true;
         return entity.hasCustomName();
     }
     /** A golem the village spawned: not built by a player, not named, not leashed. The only golem a hunt may be asked to kill. */
@@ -611,7 +611,7 @@ final class GuardCombat {
             }
             boolean recent(ServerPlayer victim,LivingEntity attacker){int age=victim.tickCount-victim.getLastHurtByMobTimestamp();return victim.getLastHurtByMob()==attacker&&age>=0&&age<=100;}
             public boolean dead(Foe foe){return !living(foe).isAlive();}
-            public boolean inReach(Foe foe){LivingEntity e=living(foe);return body.canInteractWithEntity(e,0)&&body.hasLineOfSight(e);}
+            public boolean inReach(Foe foe){LivingEntity e=living(foe);return Version.canReachEntity(body,e)&&body.hasLineOfSight(e);}
             public boolean approach(Foe foe,Vec3 centre,double leash) {
                 if(approaching!=foe.identity()||approach==null){if(approach!=null)approach.stop();approach=new NativeNavigation(body,execution.capture()).tolerateDamage().sprint();approaching=foe.identity();}
                 if(retreat!=null){retreat.stop();retreat=null;}
@@ -778,7 +778,7 @@ final class GuardCombat {
             }
             public void draw(Foe foe) {
                 aim(living(foe));
-                if(drawing()<0){if(body.isUsingItem())body.stopUsingItem();body.connection.handleUseItem(new ServerboundUseItemPacket(InteractionHand.MAIN_HAND,++sequence,body.getYRot(),body.getXRot()));}
+                if(drawing()<0){if(body.isUsingItem())body.stopUsingItem();body.connection.handleUseItem(Version.useItemPacket(InteractionHand.MAIN_HAND,++sequence,body.getYRot(),body.getXRot()));}
             }
             public void release(Foe foe) {
                 aim(living(foe));
@@ -801,7 +801,7 @@ final class GuardCombat {
                 look(point);
                 if(!(body.isUsingItem()&&body.getUsedItemHand()==InteractionHand.OFF_HAND)){
                     if(body.isUsingItem())body.stopUsingItem();
-                    body.connection.handleUseItem(new ServerboundUseItemPacket(InteractionHand.OFF_HAND,++sequence,body.getYRot(),body.getXRot()));
+                    body.connection.handleUseItem(Version.useItemPacket(InteractionHand.OFF_HAND,++sequence,body.getYRot(),body.getXRot()));
                 }
             }
             public void lowerShield(){if(body.isUsingItem()&&body.getUsedItemHand()==InteractionHand.OFF_HAND)body.stopUsingItem();}

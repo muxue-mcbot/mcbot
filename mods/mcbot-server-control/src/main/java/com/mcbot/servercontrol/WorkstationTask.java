@@ -185,7 +185,7 @@ final class WorkstationTask implements BodyTask {
             BlockPos at=feet.offset(dx,dy,dz);BlockState there=player.serverLevel().getBlockState(at);
             if(!(there.isAir()||there.canBeReplaced()&&there.getFluidState().isEmpty())||!player.serverLevel().getBlockState(at.below()).isFaceSturdy(player.serverLevel(),at.below(),Direction.UP))continue;
             if(new AABB(at).intersects(player.getBoundingBox()))continue;
-            if(player.getEyePosition().distanceTo(Vec3.atCenterOf(at))>player.blockInteractionRange()-0.5)continue;
+            if(player.getEyePosition().distanceTo(Vec3.atCenterOf(at))>Version.blockReach(player)-0.5)continue;
             target=at;break outer;
         }
         if(target==null)throw error("NO_ROOM","No free floor beside the body to put the crafting table down");
@@ -264,7 +264,7 @@ final class WorkstationTask implements BodyTask {
             if(fuelSlot.isEmpty()) {
                 int bestRank=Integer.MAX_VALUE;
                 for(int i=0;i<36;i++){ItemStack s=inventory.getItem(i);int ticks=s.isEmpty()?0:burn.applyAsInt(s);int rank=fuel!=null?(plain(s)&&s.is(fuel)&&ticks>0?0:-1):fuelRank(s,input,ticks);if(rank>=0&&rank<bestRank){bestRank=rank;best=i;}}
-            } else for(int i=0;i<36;i++){ItemStack s=inventory.getItem(i);if(plain(s)&&ItemStack.isSameItemSameComponents(s,fuelSlot)){best=i;break;}}
+            } else for(int i=0;i<36;i++){ItemStack s=inventory.getItem(i);if(plain(s)&&Version.sameItem(s,fuelSlot)){best=i;break;}}
             if(best>=0) {
                 Item kind=inventory.getItem(best).getItem();int perFuel=burn.applyAsInt(inventory.getItem(best));fuelId=id(kind);
                 int wantFuel=(needTicks+perFuel-1)/perFuel;

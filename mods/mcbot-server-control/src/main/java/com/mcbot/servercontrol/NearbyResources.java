@@ -78,7 +78,7 @@ final class NearbyResources {
         int maybeBuilding=0;
         if(!options.includeBuildings()) {
             var level=body.serverLevel();String dimension=level.dimension().location().toString();
-            maybeBuilding=BuildingGuard.leaveOut(matches,Candidate::position,new BuildingGuard.Live(level),body.blockInteractionRange(),BuildingGuard.home(args,dimension),own);
+            maybeBuilding=BuildingGuard.leaveOut(matches,Candidate::position,new BuildingGuard.Live(level),Version.blockReach(body),BuildingGuard.home(args,dimension),own);
             if(maybeBuilding>0){Set<BlockPos> left=new HashSet<>();for(Candidate c:matches)left.add(c.position());tree.retainAll(left);}
         }
         // Safety and line-of-sight checks cost terrain reads: run them nearest first, one past the limit to report truncation.

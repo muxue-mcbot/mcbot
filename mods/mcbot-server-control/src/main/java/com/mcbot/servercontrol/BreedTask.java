@@ -122,7 +122,7 @@ final class BreedTask implements BodyTask {
     private boolean inReach(Vec3 feet,Animal animal) {
         Vec3 eye=feet.add(0,player.getEyeHeight(),0);AABB box=animal.getBoundingBox();
         Vec3 nearest=new Vec3(Mth.clamp(eye.x,box.minX,box.maxX),Mth.clamp(eye.y,box.minY,box.maxY),Mth.clamp(eye.z,box.minZ,box.maxZ));
-        if(eye.distanceTo(nearest)>player.entityInteractionRange()-0.3)return false;
+        if(eye.distanceTo(nearest)>Version.entityReach(player)-0.3)return false;
         return player.serverLevel().clip(new ClipContext(eye,box.getCenter(),ClipContext.Block.COLLIDER,ClipContext.Fluid.NONE,player)).getType()==HitResult.Type.MISS;
     }
 

@@ -57,9 +57,9 @@ final class StationQuery {
         }
         Set<String> seen=new HashSet<>();
         for(var entry:List.of(Map.entry("minecraft:furnace",RecipeType.SMELTING),Map.entry("minecraft:smoker",RecipeType.SMOKING),Map.entry("minecraft:blast_furnace",RecipeType.BLASTING)))
-            for(var holder:player.getServer().getRecipeManager().getAllRecipesFor(entry.getValue())) {
+            for(var holder:VersionRecipes.all(player.getServer(),entry.getValue())) {
                 AbstractCookingRecipe recipe=holder.value();
-                if(!recipe.getResultItem(player.registryAccess()).is(wanted)||recipe.getIngredients().isEmpty()||!seen.add(entry.getKey()+holder.id()))continue;
+                if(!recipe.getResultItem(player.level().registryAccess()).is(wanted)||recipe.getIngredients().isEmpty()||!seen.add(entry.getKey()+holder.id()))continue;
                 ways.add(obj("tool","smelt-item","station",entry.getKey(),"recipe",holder.id().toString(),"input",options(recipe.getIngredients().get(0))));
                 if(seen.size()>6)break;
             }

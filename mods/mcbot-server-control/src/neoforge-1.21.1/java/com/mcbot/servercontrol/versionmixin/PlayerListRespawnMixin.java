@@ -1,6 +1,6 @@
 package com.mcbot.servercontrol.versionmixin;
 
-import com.mcbot.servercontrol.NativeRespawn;
+import com.mcbot.servercontrol.RespawnSeam;
 import com.mojang.authlib.GameProfile;
 import net.minecraft.server.MinecraftServer;
 import net.minecraft.server.level.ClientInformation;
@@ -18,6 +18,6 @@ abstract class PlayerListRespawnMixin {
     @Redirect(method="respawn",at=@At(value="NEW",target="net/minecraft/server/level/ServerPlayer"),require=1)
     private ServerPlayer mcbot$preserveBody(MinecraftServer server,ServerLevel level,GameProfile profile,
         ClientInformation information,ServerPlayer previous,boolean keepInventory,Entity.RemovalReason reason) {
-        return NativeRespawn.replacement(server,level,profile,information,previous);
+        return RespawnSeam.replacement(server,level,profile,information,previous);
     }
 }

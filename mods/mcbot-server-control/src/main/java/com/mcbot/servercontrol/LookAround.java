@@ -44,7 +44,7 @@ final class LookAround {
         if(state.is(BlockTags.LOGS))return "log";
         if(NearbyBlocks.ordinaryContainer(state))return "container";
         if(state.is(BlockTags.BEDS))return "bed";
-        if(block==Blocks.SPAWNER||block==Blocks.TRIAL_SPAWNER||block==Blocks.VAULT)return "spawner";
+        if(block==Blocks.SPAWNER||Version.trialBlock(block))return "spawner";
         if(block==Blocks.NETHER_PORTAL||block==Blocks.END_PORTAL_FRAME)return "portal";
         if(block==Blocks.CRAFTING_TABLE||block==Blocks.ENCHANTING_TABLE||block==Blocks.SMITHING_TABLE||block==Blocks.STONECUTTER||block==Blocks.GRINDSTONE||
             block==Blocks.LOOM||block==Blocks.CARTOGRAPHY_TABLE||block==Blocks.FLETCHING_TABLE||block==Blocks.BREWING_STAND||state.is(BlockTags.ANVIL)||block==Blocks.COMPOSTER)return "workstation";

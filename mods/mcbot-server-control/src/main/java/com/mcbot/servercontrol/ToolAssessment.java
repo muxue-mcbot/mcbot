@@ -73,7 +73,7 @@ final class ToolAssessment {
     }
     static List<StackView> inventory(ServerPlayer player) {
         List<StackView> result=new ArrayList<>(36);
-        for(int slot=0;slot<36;slot++)result.add(snapshot(slot,player.getInventory().getItem(slot),player.registryAccess()));
+        for(int slot=0;slot<36;slot++)result.add(snapshot(slot,player.getInventory().getItem(slot),player.level().registryAccess()));
         return result;
     }
     /** Shared by nearby discovery: encode each inventory stack once, not once per resource block. */

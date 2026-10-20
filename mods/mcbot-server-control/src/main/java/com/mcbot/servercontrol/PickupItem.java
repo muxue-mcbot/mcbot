@@ -167,7 +167,7 @@ final class PickupItem implements BodyTask {
                 JsonObject wanted=obj("id",string(operation.args,"expectedItem"),"components",object(operation.args,"expectedComponents"));
                 return !body.serverLevel().getEntitiesOfClass(ItemEntity.class,item.getBoundingBox().inflate(1.5),other->other!=item&&other.isAlive()&&!other.getItem().isEmpty()&&sameVariant(wanted,survival.stackValue(other.getItem()))).isEmpty();
             }
-            public boolean eligible(){return item.getTarget()==null||item.getTarget().equals(body.getUUID());}
+            public boolean eligible(){java.util.UUID target=Version.pickupTarget(item);return target==null||target.equals(body.getUUID());}
             public JsonObject stack(){return survival.stackValue(item.getItem());}
             public Vec3 target(){return item==null?body.position():item.position();}
             public boolean safe(Vec3 from,Vec3 to){return geometry.safe(from,to);}

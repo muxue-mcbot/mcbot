@@ -110,7 +110,7 @@ final class SurvivalActions {
         if(stack.isEmpty()) return new JsonObject();
         for(var component:stack.getComponents()) if(component.type().isTransient())
             throw error("UNSUPPORTED","Transient item component has no complete persistent codec: "+BuiltInRegistries.DATA_COMPONENT_TYPE.getKey(component.type()));
-        Tag encoded=DataComponentMap.CODEC.encodeStart(RegistryOps.create(NbtOps.INSTANCE,player.registryAccess()),stack.getComponents()).result()
+        Tag encoded=DataComponentMap.CODEC.encodeStart(RegistryOps.create(NbtOps.INSTANCE,player.level().registryAccess()),stack.getComponents()).result()
             .orElseThrow(()->error("UNSUPPORTED","Item components cannot be serialized; refusing an incomplete item guard"));
         if(!(encoded instanceof CompoundTag values)) throw error("UNSUPPORTED","Item components have no complete compound representation");
         JsonObject result=new JsonObject();
@@ -162,7 +162,7 @@ final class SurvivalActions {
         Vec3 destination=aimPoint(shape.isEmpty()?new AABB(position):shape.bounds().move(position),requestedFace);
         BlockHitResult hit=player.serverLevel().clip(new ClipContext(player.getEyePosition(),destination,ClipContext.Block.OUTLINE,ClipContext.Fluid.NONE,player));
         if(hit.getType()!=HitResult.Type.BLOCK||!hit.getBlockPos().equals(position)||(requestedFace!=null&&hit.getDirection()!=requestedFace)) throw error("NO_LINE_OF_SIGHT","Block face is obstructed");
-        if(player.getEyePosition().distanceTo(hit.getLocation())>player.blockInteractionRange()) throw error("OUT_OF_REACH","Target exceeds ordinary block reach");
+        if(player.getEyePosition().distanceTo(hit.getLocation())>Version.blockReach(player)) throw error("OUT_OF_REACH","Target exceeds ordinary block reach");
         if(!player.serverLevel().getWorldBorder().isWithinBounds(position)) throw error("FORBIDDEN","Target outside world border");
         return hit;
     }
@@ -257,7 +257,7 @@ final class SurvivalActions {
         if(args.has("targetToken")) {
             var resource=resources.require(player,string(args,"targetToken"));
             if(!resource.position().equals(position))throw error("STALE_TARGET","Resource reference position does not match digging target");
-            if(!player.hasCorrectToolForDrops(state,player.serverLevel(),position))throw error("MISSING_TOOL","Native position-sensitive harvest check refused resource drops for the selected hand");
+            if(!Version.correctToolForDrops(player,state,player.serverLevel(),position))throw error("MISSING_TOOL","Native position-sensitive harvest check refused resource drops for the selected hand");
             requireOrdinaryOreTool(state,position);
         }
         if(state.isAir()||state.getDestroySpeed(player.serverLevel(),position)<0) throw error("NOT_DIGGABLE","Block cannot be dug");
@@ -282,7 +282,7 @@ final class SurvivalActions {
     /** Why this block may be somebody's building, or null (BuildingGuard); the home comes in the request. */
     private BuildingGuard.Reason buildingReason(JsonObject args,BlockPos position) {
         var level=player.serverLevel();String dimension=level.dimension().location().toString();
-        return BuildingGuard.around(new BuildingGuard.Live(level),player.blockInteractionRange(),BuildingGuard.home(args,dimension),ownIn(dimension),position,position).reason(position);
+        return BuildingGuard.around(new BuildingGuard.Live(level),Version.blockReach(player),BuildingGuard.home(args,dimension),ownIn(dimension),position,position).reason(position);
     }
     /** The blocks this body placed itself, as a test for one dimension. */
     java.util.function.Predicate<BlockPos> ownIn(String dimension){return p->own.has(dimension,p);}
@@ -305,7 +305,7 @@ final class SurvivalActions {
             if(!player.serverLevel().hasChunkAt(digPosition)||!player.serverLevel().getBlockState(digPosition).equals(digState)) throw error("STALE_BLOCK","Block changed during mining");
             if(player.getInventory().selected!=digSlot||!sameHand(digHand,hand())) throw error("STALE_ITEM","Main hand changed during mining");
             if(operation.args.has("targetToken")) {
-                if(!player.hasCorrectToolForDrops(digState,player.serverLevel(),digPosition))throw error("MISSING_TOOL","Native resource harvest eligibility changed during mining");
+                if(!Version.correctToolForDrops(player,digState,player.serverLevel(),digPosition))throw error("MISSING_TOOL","Native resource harvest eligibility changed during mining");
                 requireOrdinaryOreTool(digState,digPosition);
             }
             hit(digPosition,null);
@@ -335,7 +335,7 @@ final class SurvivalActions {
     }
     private void requireOrdinaryOreTool(BlockState state,BlockPos position) {
         if(!ResourceCatalog.ore(state))return;
-        var view=ToolAssessment.snapshot(player.getInventory().selected,player.getMainHandItem(),player.registryAccess());
+        var view=ToolAssessment.snapshot(player.getInventory().selected,player.getMainHandItem(),player.level().registryAccess());
         ResourceCatalog.requireOrdinaryOreTool(true,ToolAssessment.candidate(view,state,state.getDestroySpeed(player.serverLevel(),position)));
     }
     private void completeDig() {
@@ -489,7 +489,7 @@ final class SurvivalActions {
         if(pour) {
             if(level.dimensionType().ultraWarm()) throw error("UNSUPPORTED","Water boils away in this dimension");
             if(fluid.isSource()) throw error("TARGET_OCCUPIED","There is already a fluid source there");
-            if(state.getBlock() instanceof LiquidBlockContainer box&&box.canPlaceLiquid(player,level,target,state,net.minecraft.world.level.material.Fluids.WATER)) {
+            if(state.getBlock() instanceof LiquidBlockContainer box&&Version.canPlaceLiquid(box,player,level,target,state,net.minecraft.world.level.material.Fluids.WATER)) {
                 var shape=state.getShape(level,target);
                 for(Vec3 point:facePoints(shape.isEmpty()?new AABB(target):shape.bounds().move(target),Direction.UP)) aims.add(new Aim(point,target,null));
             } else if(state.isAir()||state.canBeReplaced(net.minecraft.world.level.material.Fluids.WATER)) {
@@ -521,7 +521,7 @@ final class SurvivalActions {
         for(Aim aim:aims) {
             look(aim.point());
             Vec3 eye=player.getEyePosition();
-            BlockHitResult ray=level.clip(new ClipContext(eye,eye.add(player.getViewVector(1.0F).scale(player.blockInteractionRange())),ClipContext.Block.OUTLINE,fluidMode,player));
+            BlockHitResult ray=level.clip(new ClipContext(eye,eye.add(player.getViewVector(1.0F).scale(Version.blockReach(player))),ClipContext.Block.OUTLINE,fluidMode,player));
             if(ray.getType()==HitResult.Type.BLOCK&&ray.getBlockPos().equals(aim.hits())&&(aim.face()==null||ray.getDirection()==aim.face())) { chosen=aim;break; }
         }
         if(chosen==null) { player.setYRot(yaw);player.setYHeadRot(yaw);player.setXRot(pitch);throw error("NO_LINE_OF_SIGHT","No view of that spot within reach; stand closer, with a clear line to it"); }
@@ -537,7 +537,7 @@ final class SurvivalActions {
         int waterBefore=NativeWorkstation.total(inventory,Items.WATER_BUCKET),emptyBefore=NativeWorkstation.total(inventory,Items.BUCKET),filledBefore=filled==null?0:NativeWorkstation.total(inventory,filled);
         JsonObject blockBefore=blockSnapshot(target);
         nativeEffects.sent();select(slot);guard(operation);
-        nativeEffects.sent();player.connection.handleUseItem(new ServerboundUseItemPacket(InteractionHand.MAIN_HAND,++sequence,player.getYRot(),player.getXRot()));
+        nativeEffects.sent();player.connection.handleUseItem(Version.useItemPacket(InteractionHand.MAIN_HAND,++sequence,player.getYRot(),player.getXRot()));
         JsonObject result=obj("action",mode,"block",blockSnapshot(target),"buckets",obj("water_bucket",NativeWorkstation.total(inventory,Items.WATER_BUCKET),"bucket",NativeWorkstation.total(inventory,Items.BUCKET)));
         if(filled==Items.LAVA_BUCKET) result.getAsJsonObject("buckets").addProperty("lava_bucket",NativeWorkstation.total(inventory,Items.LAVA_BUCKET));
         int emptyNow=NativeWorkstation.total(inventory,Items.BUCKET);
@@ -559,7 +559,7 @@ final class SurvivalActions {
         if(!player.inventoryMenu.getCarried().isEmpty()) throw error("BUSY","Item use requires an empty own inventory cursor");
         JsonObject before=interactionSnapshot(null,interaction,false);
         nativeEffects.sent();select(slot);guard(operation);
-        nativeEffects.sent();player.connection.handleUseItem(new ServerboundUseItemPacket(InteractionHand.MAIN_HAND,++sequence,player.getYRot(),player.getXRot()));
+        nativeEffects.sent();player.connection.handleUseItem(Version.useItemPacket(InteractionHand.MAIN_HAND,++sequence,player.getYRot(),player.getXRot()));
         // Held-use items (bows, shields, food) are outside this contract; never leave one in progress.
         boolean heldUse=player.isUsingItem();
         if(heldUse) stopNativeFoodUse();
@@ -686,7 +686,7 @@ final class SurvivalActions {
         int from=NativeWorkstation.menuSlot(menu,player.getInventory(),slot),worn=NativeWorkstation.menuSlot(menu,player.getInventory(),offhand?net.minecraft.world.entity.player.Inventory.SLOT_OFFHAND:36+part.getIndex());
         if(from<0||worn<0)throw error("UNSUPPORTED","Own inventory menu has no matching slots");
         Slot armour=menu.getSlot(worn);ItemStack old=armour.getItem().copy();
-        if(offhandAsked&&!old.isEmpty()&&ItemStack.isSameItemSameComponents(old,stack))throw error("ALREADY_HELD","The same item is already in the off hand");
+        if(offhandAsked&&!old.isEmpty()&&Version.sameItem(old,stack))throw error("ALREADY_HELD","The same item is already in the off hand");
         if(!armour.mayPlace(stack)||(!old.isEmpty()&&!armour.mayPickup(player)))throw error("FORBIDDEN","The worn piece cannot be taken off (curse of binding) or the item does not fit");
         JsonObject wanted=stackValue(stack),previous=old.isEmpty()?null:stackValue(old);guard(operation);
         nativeEffects.sent();
@@ -733,7 +733,7 @@ final class SurvivalActions {
         },nativeEffects,SurvivalActions::now,eatDeadline,slot,before,returned);
         eating=use;lastEatTick=Integer.MIN_VALUE;guard(operation);nativeEffects.sent();select(slot);
         if(player.getInventory().selected!=slot||!before.equals(stackValue(player.getMainHandItem())))throw error("STALE_ITEM","Native selected hand differs from guarded food");
-        player.connection.handleUseItem(new ServerboundUseItemPacket(InteractionHand.MAIN_HAND,++sequence,player.getYRot(),player.getXRot()));
+        player.connection.handleUseItem(Version.useItemPacket(InteractionHand.MAIN_HAND,++sequence,player.getYRot(),player.getXRot()));
         use.tick();if(!use.alive())eating=null;
     }
     void receiveFoodFinish(boolean mainHand,ItemStack original,ItemStack result) {
@@ -767,7 +767,7 @@ final class SurvivalActions {
                 if(target.isRemoved()||player.serverLevel().getEntity(target.getUUID())!=target)return "target_left";
                 ThreatSense.requireEligible(player,target);
                 if(ThreatSense.retreatRequired(player,target,minHealth)||player.isInLava())throw error("RETREAT_REQUIRED","Low health or preparing explosion requires a separately bounded safe retreat");
-                if(player.distanceToSqr(target)>distance*distance||!player.canInteractWithEntity(target,0))return "target_left";
+                if(player.distanceToSqr(target)>distance*distance||!Version.canReachEntity(player,target))return "target_left";
                 if(!player.hasLineOfSight(target))return "lost_line_of_sight";
                 // Someone standing next to the target is no reason to hold back: refusesNativeSweep cancels the sweep and
                 // refusesNativeIncomingDamage cancels damage to anything but the target, so only the target is hit.

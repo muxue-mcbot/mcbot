@@ -276,7 +276,7 @@ final class FarmTask implements BodyTask {
         Vec3 eye=feet.add(0,player.getEyeHeight(),0);
         BlockHitResult hit=level().clip(new ClipContext(eye,aim(pos,face),ClipContext.Block.OUTLINE,ClipContext.Fluid.NONE,player));
         if(hit.getType()!=HitResult.Type.BLOCK||!hit.getBlockPos().equals(pos)||face!=null&&hit.getDirection()!=face)return null;
-        return eye.distanceTo(hit.getLocation())<=player.blockInteractionRange()-0.25?hit:null;
+        return eye.distanceTo(hit.getLocation())<=Version.blockReach(player)-0.25?hit:null;
     }
     private BlockPos targetOf(Object work){return work instanceof Crop c?c.pos():work instanceof Plant p?p.soil():work instanceof Till t?t.pos():(BlockPos)work;}
     private Direction faceOf(Object work){return work instanceof Plant p?p.face():work instanceof Till?Direction.UP:null;}
@@ -326,7 +326,7 @@ final class FarmTask implements BodyTask {
         if(drop!=null&&(far==null||drop.distanceToSqr(player)<farDistance||plants.stream().anyMatch(p->!has(p.seed()))))return drop;
         if(far!=null)return far;
         if(boneMeal>0&&has(Items.BONE_MEAL)) {
-            growing.removeIf(pos->{BlockState s=level().getBlockState(pos);return kind(s)!=Kind.CROP||ripe(level(),pos,s,Kind.CROP)||!(s.getBlock() instanceof BonemealableBlock b)||!b.isValidBonemealTarget(level(),pos,s);});
+            growing.removeIf(pos->{BlockState s=level().getBlockState(pos);return kind(s)!=Kind.CROP||ripe(level(),pos,s,Kind.CROP)||!(s.getBlock() instanceof BonemealableBlock b)||!Version.validBonemealTarget(b,level(),pos,s);});
             BlockPos grow=null;double growDistance=Double.MAX_VALUE;
             for(BlockPos pos:growing){if(unreachable.contains(pos))continue;double d=Vec3.atCenterOf(pos).distanceToSqr(feet);if(d<growDistance){grow=pos;growDistance=d;}}
             return grow;

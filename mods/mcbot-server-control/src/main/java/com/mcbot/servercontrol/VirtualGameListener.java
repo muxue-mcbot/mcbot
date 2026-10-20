@@ -7,13 +7,16 @@ import net.minecraft.server.MinecraftServer;
 import net.minecraft.server.network.*;
 import net.minecraft.world.phys.Vec3;
 
-final class VirtualGameListener extends ServerGamePacketListenerImpl {
+/** The body's game listener on the in-process sink; the constructor of vanilla's listener is in each version's {@link GameListenerBase}. */
+final class VirtualGameListener extends GameListenerBase {
     private final VirtualConnection sink;
     private Vec3 pendingMotion;
     private Integer pendingTeleport;
-    VirtualGameListener(MinecraftServer server,VirtualConnection sink,BodyPlayer player,CommonListenerCookie cookie) {
-        super(server,sink,player,cookie); this.sink=sink;
+    VirtualGameListener(MinecraftServer server,VirtualConnection sink,BodyPlayer player) {
+        super(server,sink,player); this.sink=sink;
     }
+    /** Whether the in-process sink is still open (removing the body closes it). */
+    boolean sinkConnected() { return sink.isConnected(); }
     @Override public void tick() { acknowledgeTeleport(); }
     @Override public void send(Packet<?> packet,PacketSendListener callback) {
         if(packet instanceof ClientboundSetEntityMotionPacket motion&&motion.getId()==player.getId())

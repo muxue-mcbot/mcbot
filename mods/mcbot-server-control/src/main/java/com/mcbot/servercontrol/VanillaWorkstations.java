@@ -28,9 +28,9 @@ final class VanillaWorkstations {
     static final RecipeSource CRAFTING=new RecipeSource() {
         @Override public List<StationRecipe> producing(ServerPlayer player,Item wanted) {
             List<StationRecipe> recipes=new ArrayList<>();
-            for(RecipeHolder<CraftingRecipe> holder:player.getServer().getRecipeManager().getAllRecipesFor(RecipeType.CRAFTING)) {
+            for(IdRecipe<CraftingRecipe> holder:VersionRecipes.all(player.getServer(),RecipeType.CRAFTING)) {
                 CraftingRecipe recipe=holder.value();
-                ItemStack result=recipe.getResultItem(player.registryAccess());
+                ItemStack result=recipe.getResultItem(player.level().registryAccess());
                 if(result.isEmpty()||!result.is(wanted))continue;
                 if(recipe instanceof ShapedRecipe shaped) {
                     recipes.add(new StationRecipe(holder.id(),result,shaped.getWidth(),shaped.getHeight(),shaped.getIngredients(),0,0));
@@ -87,10 +87,10 @@ final class VanillaWorkstations {
             return new RecipeSource() {
                 @Override public Optional<StationRecipe> forInput(ServerPlayer player,ItemStack input) {
                     @SuppressWarnings("unchecked") RecipeType<AbstractCookingRecipe> raw=(RecipeType<AbstractCookingRecipe>)type;
-                    return player.getServer().getRecipeManager().getRecipeFor(raw,new SingleRecipeInput(input),player.level()).map(holder->{
+                    return VersionRecipes.cookingFor(player,raw,input).map(holder->{
                         AbstractCookingRecipe recipe=holder.value();
                         Ingredient ingredient=recipe.getIngredients().isEmpty()?Ingredient.of(input.getItem()):recipe.getIngredients().get(0);
-                        return StationRecipe.processing(holder.id(),recipe.getResultItem(player.registryAccess()),ingredient,recipe.getCookingTime(),recipe.getExperience());
+                        return StationRecipe.processing(holder.id(),recipe.getResultItem(player.level().registryAccess()),ingredient,recipe.getCookingTime(),recipe.getExperience());
                     });
                 }
             };
@@ -145,10 +145,10 @@ final class VanillaWorkstations {
     static final RecipeSource STONECUTTING=new RecipeSource() {
         @Override public List<StationRecipe> producing(ServerPlayer player,Item wanted) {
             List<StationRecipe> recipes=new ArrayList<>();
-            for(RecipeHolder<StonecutterRecipe> holder:player.getServer().getRecipeManager().getAllRecipesFor(RecipeType.STONECUTTING)) {
-                ItemStack result=holder.value().getResultItem(player.registryAccess());
+            for(IdRecipe<StonecutterRecipe> holder:VersionRecipes.all(player.getServer(),RecipeType.STONECUTTING)) {
+                ItemStack result=holder.value().getResultItem(player.level().registryAccess());
                 if(result.isEmpty()||!result.is(wanted)||holder.value().getIngredients().isEmpty())continue;
-                recipes.add(StationRecipe.processing(holder.id(),result,holder.value().getIngredients().getFirst(),0,0));
+                recipes.add(StationRecipe.processing(holder.id(),result,holder.value().getIngredients().get(0),0,0));
             }
             // Most results per input first.
             recipes.sort(Comparator.comparingInt((StationRecipe r)->-r.result().getCount()).thenComparing(r->r.id().toString()));
@@ -159,20 +159,18 @@ final class VanillaWorkstations {
             ports(Port.INGREDIENT,new int[]{0},Port.RESULT,new int[]{1})) {
         @Override public RecipeSource recipes(BlockState state){return STONECUTTING;}
         @Override public List<StationOption> options(ServerPlayer player,AbstractContainerMenu menu) {
-            List<StationOption> options=new ArrayList<>();var recipes=((StonecutterMenu)menu).getRecipes();
-            for(int i=0;i<recipes.size();i++)options.add(new StationOption(i,recipes.get(i).id().toString(),recipes.get(i).value().getResultItem(player.registryAccess()),0,""));
+            List<StationOption> options=new ArrayList<>();var recipes=VersionRecipes.stonecutterOptions((StonecutterMenu)menu);
+            for(int i=0;i<recipes.size();i++)options.add(new StationOption(i,recipes.get(i).id().toString(),recipes.get(i).value().getResultItem(player.level().registryAccess()),0,""));
             return options;
         }
     };
 
     /** Brewing as the server's own PotionBrewing rules (data packs and mods extend them); one stage = one reagent. */
     static final RecipeSource BREWING=new RecipeSource() {
-        @Override public boolean isIngredient(ServerPlayer player,ItemStack ingredient){return player.serverLevel().potionBrewing().isIngredient(ingredient);}
+        @Override public boolean isIngredient(ServerPlayer player,ItemStack ingredient){return VersionRecipes.brewingIngredient(player.serverLevel(),ingredient);}
         @Override public Optional<ItemStack> transform(ServerPlayer player,ItemStack subject,ItemStack ingredient) {
-            var brewing=player.serverLevel().potionBrewing();
-            if(subject.isEmpty()||!brewing.hasMix(subject,ingredient))return Optional.empty();
-            ItemStack result=brewing.mix(ingredient,subject.copy());
-            return ItemStack.isSameItemSameComponents(result,subject)?Optional.empty():Optional.of(result);
+            ItemStack result=VersionRecipes.brewingMix(player.serverLevel(),subject,ingredient);
+            return result.isEmpty()||Version.sameItem(result,subject)?Optional.empty():Optional.of(result);
         }
     };
     static final WorkstationAdapter BREWING_STAND=new Fixed("minecraft:brewing_stand",Template.IN_PLACE,s->s.is(Blocks.BREWING_STAND),BrewingStandMenu.class,MenuType.BREWING_STAND,5,
@@ -194,7 +192,7 @@ final class VanillaWorkstations {
         /** The three offers as the player sees them: level requirement and the one enchantment the game reveals. */
         @Override public List<StationOption> options(ServerPlayer player,AbstractContainerMenu menu) {
             EnchantmentMenu table=(EnchantmentMenu)menu;List<StationOption> options=new ArrayList<>();
-            var ids=player.registryAccess().registryOrThrow(net.minecraft.core.registries.Registries.ENCHANTMENT).asHolderIdMap();
+            var ids=player.level().registryAccess().registryOrThrow(net.minecraft.core.registries.Registries.ENCHANTMENT).asHolderIdMap();
             for(int i=0;i<3;i++) {
                 if(table.costs[i]<=0)continue;
                 String hint="";

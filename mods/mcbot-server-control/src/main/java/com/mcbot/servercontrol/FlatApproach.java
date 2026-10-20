@@ -97,7 +97,7 @@ final class FlatApproach implements BlockGetter {
     boolean containerReach(Vec3 feet,BlockPos pos) {
         missing=false;Vec3 eye=feet.add(0,player.getEyeHeight(),0);
         BlockHitResult hit=clip(new ClipContext(eye,Vec3.atCenterOf(pos),ClipContext.Block.OUTLINE,ClipContext.Fluid.NONE,player));
-        return !missing&&hit.getType()==HitResult.Type.BLOCK&&hit.getBlockPos().equals(pos)&&eye.distanceTo(hit.getLocation())<=player.blockInteractionRange();
+        return !missing&&hit.getType()==HitResult.Type.BLOCK&&hit.getBlockPos().equals(pos)&&eye.distanceTo(hit.getLocation())<=Version.blockReach(player);
     }
     boolean blockVisible(BlockPos pos) {
         missing=false;

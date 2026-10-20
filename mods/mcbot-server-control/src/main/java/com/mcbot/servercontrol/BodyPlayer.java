@@ -5,20 +5,21 @@ import net.minecraft.server.MinecraftServer;
 import net.minecraft.server.level.*;
 import net.minecraft.world.phys.Vec3;
 
-/** Survival tick follows the validated spike, with lease checked before physics. */
-final class BodyPlayer extends ServerPlayer {
+/** Survival tick follows the validated spike, with lease checked before physics. The ServerPlayer constructor is in each version's {@link BodyPlayerBase}. */
+final class BodyPlayer extends BodyPlayerBase {
     private final ServerController controller;
     private int lastSurvivalTick=Integer.MIN_VALUE;
     float forwardInput;
     private boolean jumpInput;
     BodyPlayer(MinecraftServer server,ServerLevel level,GameProfile profile,ServerController controller) {
-        this(server,level,profile,ClientInformation.createDefault(),controller);
+        this(server,level,profile,null,controller);
     }
-    private BodyPlayer(MinecraftServer server,ServerLevel level,GameProfile profile,ClientInformation information,ServerController controller) {
-        super(server,level,profile,information); this.controller=controller;
+    private BodyPlayer(MinecraftServer server,ServerLevel level,GameProfile profile,Object clientInformation,ServerController controller) {
+        super(server,level,profile,clientInformation); this.controller=controller;
     }
-    BodyPlayer createRespawnReplacement(MinecraftServer server,ServerLevel level,GameProfile profile,ClientInformation information) {
-        return new BodyPlayer(server,level,profile,information,controller);
+    /** The body vanilla respawn creates in place of this one (RespawnSeam), with the client settings vanilla carries over. */
+    BodyPlayer createRespawnReplacement(MinecraftServer server,ServerLevel level,GameProfile profile,Object clientInformation) {
+        return new BodyPlayer(server,level,profile,clientInformation,controller);
     }
     @Override public void tick() {
         controller.beforePhysics(this);
@@ -46,7 +47,7 @@ final class BodyPlayer extends ServerPlayer {
         super.doTick();
         Vec3 displacement=position().subtract(before);
         doCheckFallDamage(displacement.x,displacement.y,displacement.z,onGround());
-        setKnownMovement(displacement);
+        knownMovement(displacement);
     }
     void moveInput(double x,double z) {
         moveInput(x,z,1);

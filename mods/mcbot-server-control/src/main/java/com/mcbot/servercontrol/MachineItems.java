@@ -31,7 +31,7 @@ final class MachineItems {
         public boolean empty(ItemStack s){return s.isEmpty();}
         public int count(ItemStack s){return s.getCount();}
         public ItemStack copy(ItemStack s,int n){return s.copyWithCount(n);}
-        public boolean same(ItemStack a,ItemStack b){return ItemStack.isSameItemSameComponents(a,b);}
+        public boolean same(ItemStack a,ItemStack b){return Version.sameItem(a,b);}
     };
     static GenericItemSlots.Slots<ItemStack> slots(ItemSlots handler) {
         return new GenericItemSlots.Slots<>() {
@@ -91,7 +91,7 @@ final class MachineItems {
         final ItemStack kind=template;
         GenericItemSlots.Pocket<ItemStack> pocket=new GenericItemSlots.Pocket<>() {
             public void take(int count) {
-                for(int i=0;i<36&&count>0;i++){ItemStack s=inventory.getItem(i);if(NativeWorkstation.plain(s)&&ItemStack.isSameItemSameComponents(s,kind)){int n=Math.min(count,s.getCount());s.shrink(n);count-=n;}}
+                for(int i=0;i<36&&count>0;i++){ItemStack s=inventory.getItem(i);if(NativeWorkstation.plain(s)&&Version.sameItem(s,kind)){int n=Math.min(count,s.getCount());s.shrink(n);count-=n;}}
                 inventory.setChanged();
             }
             public void giveBack(ItemStack rest) { ItemStack left=put(inventory,rest);if(!left.isEmpty())player.drop(left,false); }
@@ -168,7 +168,7 @@ final class MachineItems {
         Vec3 aim=shape.isEmpty()?Vec3.atCenterOf(position):shape.bounds().move(position).getCenter();
         BlockHitResult hit=level.clip(new ClipContext(player.getEyePosition(),aim,ClipContext.Block.OUTLINE,ClipContext.Fluid.NONE,player));
         if(hit.getType()!=HitResult.Type.BLOCK||!hit.getBlockPos().equals(position)) throw error("NO_LINE_OF_SIGHT","Machine is obstructed");
-        if(player.getEyePosition().distanceTo(hit.getLocation())>player.blockInteractionRange()) throw error("OUT_OF_REACH","Machine is out of reach; walk closer first");
+        if(player.getEyePosition().distanceTo(hit.getLocation())>Version.blockReach(player)) throw error("OUT_OF_REACH","Machine is out of reach; walk closer first");
         NativeWorkstation.look(player,hit.getLocation());
         return hit;
     }
@@ -180,13 +180,13 @@ final class MachineItems {
     /** How many more of this exact stack the main inventory (slots 0..35) can hold. */
     static int room(Inventory inventory,ItemStack stack) {
         int max=Math.min(stack.getMaxStackSize(),inventory.getMaxStackSize()),room=0;
-        for(int i=0;i<36;i++){ItemStack s=inventory.getItem(i);if(s.isEmpty())room+=max;else if(ItemStack.isSameItemSameComponents(s,stack))room+=Math.max(0,max-s.getCount());}
+        for(int i=0;i<36;i++){ItemStack s=inventory.getItem(i);if(s.isEmpty())room+=max;else if(Version.sameItem(s,stack))room+=Math.max(0,max-s.getCount());}
         return room;
     }
     /** Stores a stack in the main inventory, topping up matching stacks first; returns what did not fit. */
     static ItemStack put(Inventory inventory,ItemStack stack) {
         ItemStack rest=stack.copy();int max=Math.min(rest.getMaxStackSize(),inventory.getMaxStackSize());
-        for(int i=0;i<36&&!rest.isEmpty();i++){ItemStack s=inventory.getItem(i);if(!s.isEmpty()&&ItemStack.isSameItemSameComponents(s,rest)&&s.getCount()<max){int n=Math.min(rest.getCount(),max-s.getCount());s.grow(n);rest.shrink(n);}}
+        for(int i=0;i<36&&!rest.isEmpty();i++){ItemStack s=inventory.getItem(i);if(!s.isEmpty()&&Version.sameItem(s,rest)&&s.getCount()<max){int n=Math.min(rest.getCount(),max-s.getCount());s.grow(n);rest.shrink(n);}}
         for(int i=0;i<36&&!rest.isEmpty();i++){if(inventory.getItem(i).isEmpty()){int n=Math.min(rest.getCount(),max);inventory.setItem(i,rest.copyWithCount(n));rest.shrink(n);}}
         inventory.setChanged();
         return rest;

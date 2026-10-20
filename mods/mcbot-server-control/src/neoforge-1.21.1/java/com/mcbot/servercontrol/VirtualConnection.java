@@ -5,7 +5,10 @@ import net.minecraft.network.*;
 import net.minecraft.network.protocol.Packet;
 import net.minecraft.network.protocol.PacketFlow;
 
-/** In-process sink; no network listener or second Minecraft client. */
+/**
+ * In-process sink; no network listener or second Minecraft client. Version shim for MC 1.21.1: Connection's methods
+ * differ between game versions, every version folder has this class with the same package-visible methods.
+ */
 public final class VirtualConnection extends Connection {
     private final EmbeddedChannel localChannel;
     private PacketListener listener;

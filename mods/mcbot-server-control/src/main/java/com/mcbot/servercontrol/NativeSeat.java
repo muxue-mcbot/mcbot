@@ -189,7 +189,7 @@ final class NativeSeat {
         Vec3 destination=shape.isEmpty()?Vec3.atCenterOf(position):shape.bounds().move(position).getCenter();
         BlockHitResult hit=bot.serverLevel().clip(new ClipContext(bot.getEyePosition(),destination,ClipContext.Block.OUTLINE,ClipContext.Fluid.NONE,bot));
         if(hit.getType()!=HitResult.Type.BLOCK||!hit.getBlockPos().equals(position)) throw error("NO_LINE_OF_SIGHT","The seat is obstructed");
-        if(bot.getEyePosition().distanceTo(hit.getLocation())>bot.blockInteractionRange()) throw error("OUT_OF_REACH","The seat is too far away");
+        if(bot.getEyePosition().distanceTo(hit.getLocation())>Version.blockReach(bot)) throw error("OUT_OF_REACH","The seat is too far away");
         return hit;
     }
 

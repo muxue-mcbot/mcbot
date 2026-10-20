@@ -154,7 +154,7 @@ final class BuildTask implements BodyTask {
     }
     /** Hung on, stood on or attached to a neighbour: placed after the layer it belongs to. */
     static boolean late(Block block) {
-        return block instanceof DoorBlock||block instanceof BedBlock||block instanceof BaseTorchBlock||block instanceof LadderBlock||block instanceof TrapDoorBlock
+        return block instanceof DoorBlock||block instanceof BedBlock||Version.torch(block)||block instanceof LadderBlock||block instanceof TrapDoorBlock
             ||block instanceof ButtonBlock||block instanceof LeverBlock||block instanceof LanternBlock||block instanceof SignBlock||block instanceof AbstractBannerBlock
             ||block instanceof CarpetBlock||block instanceof BasePressurePlateBlock||block instanceof BaseRailBlock||block instanceof FlowerPotBlock||block instanceof CandleBlock
             ||block instanceof ChainBlock||block instanceof AbstractSkullBlock||block instanceof BellBlock||block instanceof ScaffoldingBlock||block instanceof TripWireHookBlock
@@ -567,7 +567,7 @@ final class BuildTask implements BodyTask {
         for(Direction aimAt:faces) {
             BlockHitResult hit=level().clip(new ClipContext(eye,SurvivalActions.aimPoint(box,aimAt),ClipContext.Block.OUTLINE,ClipContext.Fluid.NONE,player));
             if(hit.getType()!=HitResult.Type.BLOCK||!hit.getBlockPos().equals(pos)||face!=null&&hit.getDirection()!=face)continue;
-            if(eye.distanceTo(hit.getLocation())<=player.blockInteractionRange()-0.25)return hit;
+            if(eye.distanceTo(hit.getLocation())<=Version.blockReach(player)-0.25)return hit;
         }
         return null;
     }
@@ -598,7 +598,7 @@ final class BuildTask implements BodyTask {
      * the eye), at a spot and with a way of looking that the game's own placement turns into that state. Null if none.
      */
     private Click clickFrom(Vec3 feet,Target t) {
-        Vec3 eye=feet.add(0,player.getEyeHeight(),0);double reach=player.blockInteractionRange()-0.25;
+        Vec3 eye=feet.add(0,player.getEyeHeight(),0);double reach=Version.blockReach(player)-0.25;
         if(eye.distanceToSqr(Vec3.atCenterOf(t.pos()))>(reach+1)*(reach+1))return null;
         String why=null;
         for(Direction toSupport:Direction.values()) {

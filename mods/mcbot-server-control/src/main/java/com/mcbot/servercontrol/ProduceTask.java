@@ -92,7 +92,7 @@ final class ProduceTask extends StationJob {
     private String hint(Item item) {
         if(!VanillaWorkstations.CRAFTING.producing(player,item).isEmpty())return "; it is crafted: use craft-item";
         for(var type:List.of(net.minecraft.world.item.crafting.RecipeType.SMELTING,net.minecraft.world.item.crafting.RecipeType.SMOKING,net.minecraft.world.item.crafting.RecipeType.BLASTING))
-            for(var holder:player.getServer().getRecipeManager().getAllRecipesFor(type))if(holder.value().getResultItem(player.registryAccess()).is(item))return "; it is smelted: use smelt-item";
+            for(var holder:VersionRecipes.all(player.getServer(),type))if(holder.value().getResultItem(player.level().registryAccess()).is(item))return "; it is smelted: use smelt-item";
         return "";
     }
 
@@ -129,7 +129,7 @@ final class ProduceTask extends StationJob {
         outer:
         for(int i=0;i<36;i++){
             ItemStack s=inventory.getItem(i);if(!potionItem(s.getItem())||s.getCount()!=1)continue;
-            for(var e:kinds.entrySet())if(ItemStack.isSameItemSameComponents(e.getKey(),s)){e.setValue(e.getValue()+1);continue outer;}
+            for(var e:kinds.entrySet())if(Version.sameItem(e.getKey(),s)){e.setValue(e.getValue()+1);continue outer;}
             kinds.put(s.copy(),1);
         }
         return kinds;
@@ -175,7 +175,7 @@ final class ProduceTask extends StationJob {
         for(Station at:List.copyOf(stations)) {
             if(!(player.serverLevel().getBlockEntity(at.pos()) instanceof net.minecraft.world.level.block.entity.BrewingStandBlockEntity stand))continue;
             ItemStack bottle=null;int n=0;boolean mixed=false;
-            for(int i=0;i<3;i++){ItemStack s=stand.getItem(i);if(s.isEmpty())continue;if(bottle==null)bottle=s.copy();else if(!ItemStack.isSameItemSameComponents(bottle,s))mixed=true;n++;}
+            for(int i=0;i<3;i++){ItemStack s=stand.getItem(i);if(s.isEmpty())continue;if(bottle==null)bottle=s.copy();else if(!Version.sameItem(bottle,s))mixed=true;n++;}
             if(bottle==null||mixed||!potionItem(bottle.getItem()))continue;
             ItemStack reagentIn=stand.getItem(3),from=bottle;
             // Mid-brew: plan from what the bottles are becoming.
@@ -210,7 +210,7 @@ final class ProduceTask extends StationJob {
             for(ItemStack start:starts){List<Stage> path=plan(start,null);if(path!=null&&!path.isEmpty()&&(full==null||path.size()<full.size())){full=path;from=start;}}
             if(full==null)throw error("NO_RECIPE","No brewing chain of up to "+MAX_STAGES+" stages makes "+ItemDescriptions.key(target()));
             JsonArray missing=new JsonArray();int bottlesHave=0;
-            for(var e:held.entrySet())if(ItemStack.isSameItemSameComponents(e.getKey(),from))bottlesHave=e.getValue();
+            for(var e:held.entrySet())if(Version.sameItem(e.getKey(),from))bottlesHave=e.getValue();
             if(bottlesHave<count)missing.add(obj("options",List.of(ItemDescriptions.key(from)),"need",count,"have",bottlesHave));
             Map<Item,Integer> need=new LinkedHashMap<>();for(Stage s:full)need.merge(s.ingredient(),1,Integer::sum);
             for(var e:need.entrySet()){int have=reagents.getOrDefault(e.getKey(),0);if(have<e.getValue())missing.add(obj("options",List.of(id(e.getKey())),"need",e.getValue(),"have",have));}
@@ -227,7 +227,7 @@ final class ProduceTask extends StationJob {
         if(continuing) {
             // The bottles left here earlier, unchanged; nothing is put in or taken out before checking.
             List<Integer> held=new ArrayList<>();
-            for(int slot:subjects){ItemStack s=menu.getSlot(slot).getItem();if(s.isEmpty())continue;if(!ItemStack.isSameItemSameComponents(s,startBottle)){closeMenu(player);skip("the bottles changed");return;}held.add(slot);}
+            for(int slot:subjects){ItemStack s=menu.getSlot(slot).getItem();if(s.isEmpty())continue;if(!Version.sameItem(s,startBottle)){closeMenu(player);skip("the bottles changed");return;}held.add(slot);}
             if(held.isEmpty()){closeMenu(player);skip("the bottles are gone");return;}
             if(brewingNow!=!menu.getSlot(reagent).getItem().isEmpty()){closeMenu(player);skip("the brew changed");return;}
             bottleSlots=held;
@@ -257,7 +257,7 @@ final class ProduceTask extends StationJob {
         if(!continuing) {
             // Bottles: `count` copies of the planned start bottle.
             Inventory inventory=player.getInventory();int put=0;
-            for(int i=0;i<36&&put<count;i++){ItemStack s=inventory.getItem(i);if(ItemStack.isSameItemSameComponents(s,startBottle)&&s.getCount()==1)put+=transfer(player,menu,i,subjects.get(put),1);}
+            for(int i=0;i<36&&put<count;i++){ItemStack s=inventory.getItem(i);if(Version.sameItem(s,startBottle)&&s.getCount()==1)put+=transfer(player,menu,i,subjects.get(put),1);}
             bottleSlots=subjects.subList(0,put);
             if(put<count){takeBack(menu,bottleSlots);fail("MISSING_MATERIALS","Only "+put+" matching bottles could be put in",obj());return;}
         }
@@ -275,7 +275,7 @@ final class ProduceTask extends StationJob {
     @Override void waitTick() {
         if(cookers!=null){cookTick();return;}
         ItemStack expected=stages.get(stage).result();
-        boolean done=true;for(int slot:bottleSlots)done&=ItemStack.isSameItemSameComponents(open.getSlot(slot).getItem(),expected);
+        boolean done=true;for(int slot:bottleSlots)done&=Version.sameItem(open.getSlot(slot).getItem(),expected);
         boolean brewing=safely(()->station.adapter().working(open),false);
         // Not waiting: once this stage is brewing, leave the bottles and go; the runtime says when it is done.
         if(!wait&&brewing){leave();return;}
