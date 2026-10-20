@@ -3,22 +3,27 @@ package com.mcbot.servercontrol;
 import com.google.gson.JsonObject;
 import net.minecraft.core.registries.BuiltInRegistries;
 import net.minecraft.server.level.ServerPlayer;
-import net.minecraft.world.food.FoodProperties;
 import net.minecraft.world.item.*;
+import java.util.Optional;
 import static com.mcbot.servercontrol.Protocol.*;
 
 /** Ordinary vanilla food semantics (plain items and plantable crops), no effects or special consume implementations. */
 final class FoodSafety {
+    /**
+     * What eating a stack does, the same on every version ({@link VersionItems#food}): saturation in points (not the
+     * modifier), effects whether eating it applies any, usingConvertsTo the item left in the hand (a bowl).
+     */
+    record Food(int nutrition,float saturation,int eatDurationTicks,boolean effects,boolean canAlwaysEat,Optional<ItemStack> usingConvertsTo) {}
     /** precious = safe but valuable (golden apples): the runtime eats it only on request or in an emergency. Not a safety reason. */
-    record Profile(FoodProperties food,boolean safe,boolean precious,String reason) {}
+    record Profile(Food food,boolean safe,boolean precious,String reason) {}
     static Profile assess(ItemStack stack,ServerPlayer player) {
-        FoodProperties food=stack.getFoodProperties(player);
+        Food food=VersionItems.food(stack,player);
         if(food==null) return new Profile(null,false,false,"NOT_FOOD");
         // Plantable food (carrot, potato, sweet berries) is an ItemNameBlockItem; eaten from the hand it is plain Item food.
         Class<?> kind=stack.getItem().getClass();
         String reason=reason(BuiltInRegistries.ITEM.getKey(stack.getItem()).getNamespace().equals("minecraft"),kind==Item.class||kind==ItemNameBlockItem.class,
             // Golden apples: their effects (regeneration, absorption, resistance, fire resistance) only help; still precious below.
-            food.nutrition(),food.saturation(),food.eatDurationTicks(),!food.effects().isEmpty()&&!precious(stack));
+            food.nutrition(),food.saturation(),food.eatDurationTicks(),food.effects()&&!precious(stack));
         if(reason==null&&food.usingConvertsTo().isPresent()) {
             ItemStack result=food.usingConvertsTo().get();
             if(!result.is(Items.BOWL)||result.getCount()!=1) reason="UNVERIFIED_RETURN_ITEM";
@@ -37,7 +42,7 @@ final class FoodSafety {
         String id=BuiltInRegistries.ITEM.getKey(stack.getItem()).toString();
         try {
             Profile profile=assess(stack,player);if(profile.food()==null)return null;
-            FoodProperties food=profile.food();
+            Food food=profile.food();
             return metadata(slot,id,stack.getCount(),food.nutrition(),food.saturation(),food.eatDurationTicks(),profile.safe(),profile.precious(),profile.reason());
         } catch(RuntimeException failure) {
             return unavailable(slot,id,stack.getCount(),"FOOD_PROPERTIES_UNAVAILABLE");

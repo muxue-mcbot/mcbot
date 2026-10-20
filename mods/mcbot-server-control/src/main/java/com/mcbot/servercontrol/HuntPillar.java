@@ -87,7 +87,7 @@ final class HuntPillar {
                 throw error(code,done.summary);
             }
             JsonObject block=done.result.getAsJsonObject().getAsJsonObject("block"),at=block.getAsJsonObject("position");
-            placed.add(new Step(new BlockPos(at.get("x").getAsInt(),at.get("y").getAsInt(),at.get("z").getAsInt()),BuiltInRegistries.BLOCK.get(net.minecraft.resources.ResourceLocation.parse(block.get("id").getAsString()))));
+            placed.add(new Step(new BlockPos(at.get("x").getAsInt(),at.get("y").getAsInt(),at.get("z").getAsInt()),BuiltInRegistries.BLOCK.get(Version.id(block.get("id").getAsString()))));
         }
         if(placed.size()>=want)return true;
         int slot=HuntTask.hotbarWith(player,s->plain(s)&&s.is(item));

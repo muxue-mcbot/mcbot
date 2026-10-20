@@ -42,7 +42,7 @@ final class NativeWorkstation {
         for(int i=0;i<menu.slots.size();i++){Slot s=menu.getSlot(i);if(s.container==inventory&&s.getContainerSlot()==index)return i;}
         return -1;
     }
-    static boolean plain(ItemStack stack){return !stack.isEmpty()&&stack.getComponentsPatch().isEmpty();}
+    static boolean plain(ItemStack stack){return !stack.isEmpty()&&VersionItems.noExtraData(stack);}
     static String id(ItemStack stack){return stack.isEmpty()?"minecraft:air":BuiltInRegistries.ITEM.getKey(stack.getItem()).toString();}
     static String id(Item item){return BuiltInRegistries.ITEM.getKey(item).toString();}
     static Item item(String id) {

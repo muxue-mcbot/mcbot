@@ -9,8 +9,10 @@ import net.minecraft.nbt.NbtAccounter;
 import net.minecraft.nbt.NbtIo;
 import net.minecraft.network.protocol.game.ServerboundUseItemPacket;
 import net.minecraft.world.InteractionHand;
+import net.minecraft.resources.ResourceLocation;
 import net.minecraft.server.MinecraftServer;
 import net.minecraft.world.entity.Entity;
+import net.minecraft.world.entity.EquipmentSlot;
 import net.minecraft.world.entity.Leashable;
 import net.minecraft.world.entity.item.ItemEntity;
 import net.minecraft.world.entity.monster.breeze.Breeze;
@@ -24,6 +26,7 @@ import net.minecraft.world.level.block.Block;
 import net.minecraft.world.level.block.Blocks;
 import net.minecraft.world.level.block.BonemealableBlock;
 import net.minecraft.world.level.block.LiquidBlockContainer;
+import net.minecraft.world.level.block.entity.BlockEntity;
 import net.minecraft.world.level.block.state.BlockState;
 import net.minecraft.world.level.material.Fluid;
 
@@ -88,4 +91,16 @@ final class Version {
 
     /** A trial spawner or vault (1.21), which look-around reports with the spawners. */
     static boolean trialBlock(Block block) { return block == Blocks.TRIAL_SPAWNER || block == Blocks.VAULT; }
+
+    /** A resource id from "namespace:path"; throws on a malformed one. */
+    static ResourceLocation id(String id) { return ResourceLocation.parse(id); }
+
+    /** A resource id from its two parts; throws on a malformed one. */
+    static ResourceLocation id(String namespace, String path) { return ResourceLocation.fromNamespaceAndPath(namespace, path); }
+
+    /** Head, chest, legs or feet: not the off hand, and not the body slot of a horse's or wolf's armour (1.20.5+). */
+    static boolean armourSlot(EquipmentSlot slot) { return slot.getType() == EquipmentSlot.Type.HUMANOID_ARMOR; }
+
+    /** A block entity's data as a world save writes it. */
+    static CompoundTag savedData(BlockEntity entity, Level level) { return entity.saveWithoutMetadata(level.registryAccess()); }
 }

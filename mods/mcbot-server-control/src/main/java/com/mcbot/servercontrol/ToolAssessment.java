@@ -3,14 +3,10 @@ package com.mcbot.servercontrol;
 import com.google.gson.*;
 import java.util.*;
 import net.minecraft.core.*;
-import net.minecraft.core.component.DataComponentMap;
-import net.minecraft.core.component.DataComponents;
 import net.minecraft.core.registries.BuiltInRegistries;
 import net.minecraft.nbt.*;
-import net.minecraft.resources.RegistryOps;
 import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.world.item.ItemStack;
-import net.minecraft.world.item.enchantment.*;
 import net.minecraft.world.level.block.state.BlockState;
 import static com.mcbot.servercontrol.Protocol.*;
 
@@ -92,8 +88,8 @@ final class ToolAssessment {
     }
     private static JsonObject components(ItemStack stack,HolderLookup.Provider registries) {
         if(stack.isEmpty())return new JsonObject();
-        for(var entry:stack.getComponents())if(entry.type().isTransient())throw error("UNSUPPORTED","Transient component cannot form a complete guard");
-        Tag encoded=DataComponentMap.CODEC.encodeStart(RegistryOps.create(NbtOps.INSTANCE,registries),stack.getComponents()).result()
+        if(VersionItems.transientData(stack)!=null)throw error("UNSUPPORTED","Transient component cannot form a complete guard");
+        Tag encoded=VersionItems.encodeData(stack,registries)
             .orElseThrow(()->error("UNSUPPORTED","Item components cannot form a complete guard"));
         if(!(encoded instanceof CompoundTag compound))throw error("UNSUPPORTED","Components must have a complete compound representation");
         JsonObject result=new JsonObject();for(String name:compound.getAllKeys())result.add(name,ExactNbt.encode(compound.get(name)));return result;
@@ -122,13 +118,12 @@ final class ToolAssessment {
             speed=stack.getDestroySpeed(state);
             if(!Float.isFinite(speed)||speed<=0){speed=Float.NaN;reason="BASE_SPEED_UNKNOWN";}
             if(stack.isDamageableItem())remaining=Math.max(0,stack.getMaxDamage()-stack.getDamageValue());
-            var enchantments=stack.getOrDefault(DataComponents.ENCHANTMENTS,ItemEnchantments.EMPTY);
             // What the block drops comes from its loot table (ResourceCatalog.drops); only modded enchantments stay unknown.
             dropKnown=true;
-            for(var enchantment:enchantments.entrySet()) {
-                if(enchantment.getKey().is(Enchantments.SILK_TOUCH))silk=enchantment.getIntValue();
-                else if(enchantment.getKey().is(Enchantments.FORTUNE))fortune=enchantment.getIntValue();
-                if(enchantment.getKey().unwrapKey().isEmpty()||!enchantment.getKey().unwrapKey().orElseThrow().location().getNamespace().equals("minecraft"))dropKnown=false;
+            for(var enchantment:VersionItems.enchantments(stack)) {
+                if(enchantment.id().equals("minecraft:silk_touch"))silk=enchantment.level();
+                else if(enchantment.id().equals("minecraft:fortune"))fortune=enchantment.level();
+                if(!enchantment.vanilla())dropKnown=false;
             }
             if(!nativeEligible)reason="INCORRECT_TOOL_FOR_DROPS";
             if(state.isAir()||!Float.isFinite(hardness)||hardness<0){eligible=false;reason="NOT_DIGGABLE";}

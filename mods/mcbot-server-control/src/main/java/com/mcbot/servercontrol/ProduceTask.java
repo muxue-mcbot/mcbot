@@ -3,15 +3,11 @@ package com.mcbot.servercontrol;
 import com.google.gson.*;
 import com.mcbot.servercontrol.api.workstation.*;
 import java.util.*;
-import net.minecraft.core.Holder;
-import net.minecraft.core.component.DataComponents;
 import net.minecraft.core.registries.BuiltInRegistries;
-import net.minecraft.core.registries.Registries;
 import net.minecraft.resources.ResourceLocation;
 import net.minecraft.world.entity.player.Inventory;
 import net.minecraft.world.inventory.AbstractContainerMenu;
 import net.minecraft.world.item.*;
-import net.minecraft.world.item.alchemy.*;
 import static com.mcbot.servercontrol.Protocol.*;
 import static com.mcbot.servercontrol.NativeWorkstation.*;
 
@@ -35,7 +31,7 @@ final class ProduceTask extends StationJob {
     private StationRecipe recipe;
     private int inputs;
     // brewing
-    private Holder<Potion> potion;
+    private ResourceLocation potion;
     private ItemStack startBottle;
     private List<Stage> stages;
     private int stage=-1,fuelAdded;
@@ -54,16 +50,14 @@ final class ProduceTask extends StationJob {
         return (int)value;
     }
     static boolean potionItem(Item item){return item==Items.POTION||item==Items.SPLASH_POTION||item==Items.LINGERING_POTION;}
-    static Holder<Potion> potion(String id) {
+    static ResourceLocation potion(String id) {
         ResourceLocation key=ResourceLocation.tryParse(id.contains(":")?id:"minecraft:"+id);
-        var found=key==null?Optional.<Holder.Reference<Potion>>empty():BuiltInRegistries.POTION.getHolder(key);
-        if(found.isEmpty())throw error("INVALID_ARGUMENT","Unknown potion "+id);
-        return found.get();
+        if(key==null||!VersionItems.potionExists(key))throw error("INVALID_ARGUMENT","Unknown potion "+id);
+        return key;
     }
-    static boolean isPotion(ItemStack stack,Item item,Holder<Potion> potion) {
+    static boolean isPotion(ItemStack stack,Item item,ResourceLocation potion) {
         if(!stack.is(item))return false;
-        PotionContents contents=stack.get(DataComponents.POTION_CONTENTS);
-        return contents!=null&&contents.is(potion)&&contents.customEffects().isEmpty();
+        return potion.equals(VersionItems.potion(stack))&&!VersionItems.customPotionEffects(stack);
     }
 
     @Override void begin() {
@@ -122,7 +116,7 @@ final class ProduceTask extends StationJob {
     }
 
     // ---------- brewing ----------
-    private ItemStack target(){return PotionContents.createItemStack(wanted,potion);}
+    private ItemStack target(){return VersionItems.potionStack(wanted,potion);}
     /** Distinct bottle kinds in the main inventory: a sample stack and how many slots hold it. */
     private Map<ItemStack,Integer> bottlesHeld() {
         Map<ItemStack,Integer> kinds=new LinkedHashMap<>();Inventory inventory=player.getInventory();
@@ -204,7 +198,7 @@ final class ProduceTask extends StationJob {
         }
         if(best==null) {
             // What would be needed: the shortest chain from a bottle held (or a water bottle) with any reagent.
-            ItemStack water=PotionContents.createItemStack(Items.POTION,Potions.WATER);
+            ItemStack water=VersionItems.waterBottle();
             List<Stage> full=null;ItemStack from=null;
             List<ItemStack> starts=new ArrayList<>(held.keySet());starts.add(water);
             for(ItemStack start:starts){List<Stage> path=plan(start,null);if(path!=null&&!path.isEmpty()&&(full==null||path.size()<full.size())){full=path;from=start;}}
@@ -285,7 +279,7 @@ final class ProduceTask extends StationJob {
         if(!brewing&&waited>3_000||waited>40_000){collect("Stage "+(stage+1)+" did not brew");}
     }
     private String describeStage(int index){return (index+1)+" of "+stages.size()+" ("+id(stages.get(index).ingredient())+")";}
-    private String potionId(){return potion.unwrapKey().map(k->k.location().toString()).orElse("?");}
+    private String potionId(){return potion.toString();}
     /** Receipt when bottles stay in the stand: where, which stage, and how to go on. */
     private JsonObject leftResult(int index) {
         JsonObject result=obj("item",id(wanted),"potion",potionId(),"station",pos(station.pos()),"stage",index+1,"of",stages.size(),"stages",describe(stages),

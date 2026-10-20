@@ -5,8 +5,6 @@ import com.google.gson.JsonObject;
 import java.util.*;
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.Direction;
-import net.minecraft.core.component.DataComponentType;
-import net.minecraft.core.component.DataComponents;
 import net.minecraft.core.registries.BuiltInRegistries;
 import net.minecraft.network.protocol.game.ServerboundPlayerActionPacket;
 import net.minecraft.network.protocol.game.ServerboundSetCarriedItemPacket;
@@ -518,10 +516,10 @@ final class GuardCombat {
     static boolean huntLicensed(boolean wildGolem,UUID victim,UUID swinging){return wildGolem&&victim.equals(swinging);}
     /** protectedEntity for damage from the body (the friendly-fire cancel): the same, except the wild golem a hunt is swinging at. */
     static boolean protectedFromBody(Entity entity){return protectedEntity(entity)&&!huntLicensed(wildGolem(entity),entity.getUUID(),huntSwing);}
-    /** Loaded on first item check only: the component registry needs a bootstrapped game. */
+    /** The only item data a verified weapon or shield may carry. */
     private static final class Known {
-        static final Set<DataComponentType<?>> WEAPON=Set.of(DataComponents.DAMAGE,DataComponents.CUSTOM_NAME,DataComponents.LORE,DataComponents.REPAIR_COST,DataComponents.ENCHANTMENTS);
-        static final Set<DataComponentType<?>> SHIELD=Set.of(DataComponents.DAMAGE,DataComponents.CUSTOM_NAME,DataComponents.LORE,DataComponents.REPAIR_COST,DataComponents.ENCHANTMENTS,DataComponents.BANNER_PATTERNS,DataComponents.BASE_COLOR);
+        static final Set<ItemData.Kind> WEAPON=EnumSet.of(ItemData.Kind.DAMAGE,ItemData.Kind.CUSTOM_NAME,ItemData.Kind.LORE,ItemData.Kind.REPAIR_COST,ItemData.Kind.ENCHANTMENTS);
+        static final Set<ItemData.Kind> SHIELD=EnumSet.of(ItemData.Kind.DAMAGE,ItemData.Kind.CUSTOM_NAME,ItemData.Kind.LORE,ItemData.Kind.REPAIR_COST,ItemData.Kind.ENCHANTMENTS,ItemData.Kind.BANNER_PATTERNS,ItemData.Kind.BASE_COLOR);
     }
     /** A creeper's private explosion radius and fuse length, read once; the vanilla values (3 and 30) when a version hides them. */
     private static final class CreeperFacts {
@@ -531,10 +529,10 @@ final class GuardCombat {
     }
     private static final List<String> TIERS=List.of("netherite","diamond","iron","stone","golden","wooden");
     /** Vanilla item and class, only known data components, only vanilla enchantments, some durability left. */
-    private static boolean verified(ItemStack stack,Class<?> kind,Set<DataComponentType<?>> allowed) {
+    private static boolean verified(ItemStack stack,Class<?> kind,Set<ItemData.Kind> allowed) {
         if(stack.isEmpty()||!kind.isInstance(stack.getItem())||!BuiltInRegistries.ITEM.getKey(stack.getItem()).getNamespace().equals("minecraft")||!stack.getItem().getClass().getName().startsWith("net.minecraft."))return false;
-        for(var entry:stack.getComponentsPatch().entrySet())if(!allowed.contains(entry.getKey()))return false;
-        for(var enchantment:stack.getEnchantments().keySet())if(!enchantment.unwrapKey().map(key->key.location().getNamespace().equals("minecraft")).orElse(false))return false;
+        if(!VersionItems.otherData(stack,allowed).isEmpty())return false;
+        for(var enchantment:VersionItems.enchantments(stack))if(!enchantment.vanilla())return false;
         return !stack.isDamageableItem()||stack.getMaxDamage()-stack.getDamageValue()>4;
     }
     /** How to get a hand ready for melee: hold that slot, keep what is held, or stow the held stack into that main inventory slot; none when every slot is full. */
@@ -561,7 +559,7 @@ final class GuardCombat {
     }
     static boolean bow(ItemStack stack) {
         // Flame arrows can light TNT and campfires; that is not part of guarding.
-        return verified(stack,BowItem.class,Known.WEAPON)&&stack.getEnchantments().keySet().stream().noneMatch(e->e.is(net.minecraft.world.item.enchantment.Enchantments.FLAME));
+        return verified(stack,BowItem.class,Known.WEAPON)&&VersionItems.enchantments(stack).stream().noneMatch(e->e.id().equals("minecraft:flame"));
     }
     static boolean shield(ItemStack stack){return verified(stack,ShieldItem.class,Known.SHIELD);}
 

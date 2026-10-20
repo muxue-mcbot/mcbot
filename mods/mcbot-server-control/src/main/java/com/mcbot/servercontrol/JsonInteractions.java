@@ -137,7 +137,7 @@ final class JsonInteractions {
             public boolean block(BlockState state) {return rule.matchesBlock(BuiltInRegistries.BLOCK.getKey(state.getBlock()).toString());}
             public boolean emptyHand() {return rule.emptyHand();}
             public boolean accepts(ItemStack held) {
-                return rule.acceptsItem(BuiltInRegistries.ITEM.getKey(held.getItem()).toString(),tag->held.is(TagKey.create(Registries.ITEM,ResourceLocation.parse(tag))));
+                return rule.acceptsItem(BuiltInRegistries.ITEM.getKey(held.getItem()).toString(),tag->held.is(TagKey.create(Registries.ITEM,Version.id(tag))));
             }
             public void precondition(ServerPlayer player,BlockPos position,BlockState state,ItemStack held) {
                 String refusal=rule.refusal(properties(state));

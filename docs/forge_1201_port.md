@@ -2,9 +2,16 @@
 
 2026-10-21。用户想让 Bot 支持整合包「香草纪元：食旅纪行」2.7.1，这个包是 MC 1.20.1、Forge 47.3.33。我们现在只支持 MC 1.21.1、NeoForge，所以第一步是把核心移植到 1.20.1 Forge 上。这份文档记下试编的结果、选定的做法和还要做的事。
 
-**进度（10-21）**：在分支 `forge-1.20.1`（worktree `G:\mc\muxue-mcbot-platform-1201`）上做，都没提交。
-- 共用代码已改成 Java 17 写法（16 个文件、41 处）。1.21.1 版 `build check` 通过，37 组 `controlTest` 全过，`loaderNeutralCheck` 也过。
-- 1.20.1 试编从 396 个错误降到 354 个（36 个文件）。
+**进度（10-21）**：在分支 `forge-1.20.1`（worktree `G:\mc\muxue-mcbot-platform-1201`）上分步提交，没推送。
+- 已经做完的：
+  1. 共用代码改成 Java 17 写法；
+  2. 事件桥和版本目录；
+  3. 垫片第一批：上线和连接、配方、触及距离、零碎的签名差异；
+  4. 垫片第二批：寻路；
+  5. 垫片第三批：物品数据和 `ResourceLocation`。
+- 1.21.1 层已经拆完。共用代码里没有加载器的类，已知的 1.21 专有调用也都改走垫片了。还有没有漏的，要等写出 1.20.1 层、用 Forge 试编才知道。
+- 每一步都只做了离线验证：1.21.1 版 `build check` 通过（37 组 `controlTest`，`loaderNeutralCheck`）。还没进游戏，1.21.1 的隔离服实测没重跑（要用户同意）。
+- Forge 试编的错误数现在不用看。共用代码调用的垫片类在 `forge-1.20.1` 里还没有，一个缺类会连带报一大片。第三步后量过一次是 1130 个，比拆之前的 354 个还多。
 
 ## 整合包
 
@@ -79,51 +86,79 @@ $env:JAVA_HOME = 'D:\Java\jdk-21'
   - `mods/mcbot-server-control-forge1201/build.gradle`（Forge 1.20.1，ModDevGradle Legacy）编同一份 `main` 加 `forge-1.20.1`。它的 `mod_version` 从核心的 `gradle.properties` 读，不另写一份，免得 `set-version.mjs` 只改到一边。
 - 公开接口 `api/` 只用两个版本都有的类型，附属模组编译时只认它。
 
-**版本垫片**
-- 垫片是包 `com.mcbot.servercontrol.version` 里的几个类。两个版本目录各放一份同名、同签名的类，共用代码直接调用；编译时只会带上其中一份。哪边少了方法，那边就编不过。
-- 一两行的差异写成垫片方法：
-  - 比较两个物品是否相同；
-  - 触及距离；
-  - 使用物品的包；
-  - `hasCorrectToolForDrops` 等签名变化。
-- 成段不同的，整个方法搬进垫片：
-  - `ItemDescriptions.key`（读物品组件，1.20.1 读 NBT）；
-  - 附魔等级；
-  - 食物、药水；
-  - 盔甲和工具的属性。
-- 寻路：
-  - 格子类型用垫片常量加 `var`（1.21.1 是 `PathType`，1.20.1 是 `BlockPathTypes`，常量名一样）。
-  - `RouteEvaluator` 重写的方法签名不同，按版本各写一个薄子类，逻辑留在共用代码里。
-- 配方差异放进现有的 `RecipeSource`，不另做一套。
-- Bot 上线、连接、重生（`placeNewPlayer`、`VirtualConnection`、`VirtualGameListener`、`BodyPlayer` 的构造、`NativeRespawn`）整块放进版本目录。
+**版本垫片**（1.21.1 的在 `src/neoforge-1.21.1/java/com/mcbot/servercontrol/`）
+- 垫片和共用代码在同一个包 `com.mcbot.servercontrol` 里，都是包内可见。两个版本目录各放一份同名、同签名的类，共用代码直接调用；编译时只会带上其中一份，哪边少了方法，那边就编不过。
+- 现有的垫片：
 
-**事件桥**
-- `ServerController`、`SurvivalActions`、`ValidationProtection` 现在直接接收 NeoForge 的事件对象，也自己注册监听。改成：
-  - 它们只提供普通方法，参数是玩家、物品、伤害来源这些原版对象，要不要取消用返回值表示；
-  - 每个版本的事件桥负责注册、拆事件、按返回值取消。
-- 这几个文件留在原地，只改接收事件的那些方法。
-- 涉及的事件：聊天（含 Bot 发言时先发一个聊天事件让保护模组拦）、拾取前／后、吃完东西、受伤后、攻击和即将受伤（保护和误伤）、横扫、箭的标记、踩耕地、死亡、掉落、tick、开服／关服、验收夹具的命令和重生。
+  | 类 | 管什么 |
+  |---|---|
+  | `Version` | 一两行的差异：触及距离、两个物品是否相同、按位置判断工具能不能掉落、装水、骨粉、掉落物指定的拾取人、使用物品的包、读压缩 NBT、暂停、全员可用命令、拴绳、旋风人、火把、试炼方块、`ResourceLocation`、盔甲槽、方块实体的存档数据 |
+  | `VersionItems` | 物品数据：有没有额外数据、药水、附魔（含诅咒和绑定）、损耗、改名、修理花费、其它数据、盔甲点数、食物、组件编码、默认堆叠数、附魔台线索 |
+  | `VersionRecipes` | 配方：按类型取全部、烧炼、切石机选项、酿造 |
+  | `VersionPath`、`RouteEvaluatorBase` | 寻路的格子类型和搜索中的状态。格子类型放在 `var` 里，和垫片常量比较（1.21.1 是 `PathType`，1.20.1 是 `BlockPathTypes`，常量名一样） |
+  | `BodyPlayerBase`、`GameListenerBase`、`VirtualConnection`、`RespawnSeam` | Bot 上线、连接、重生。`BodyPlayer`、`VirtualGameListener` 留在共用代码，继承这两个基类 |
+  | `McbotServerControl`、`NeoForgePlatform` | 模组入口、事件桥、`LoaderPlatform` 的实现 |
+
+- 共用代码里放两版通用的中立类型：`IdRecipe`（配方和它的 id）、`ItemData`（数据种类、附魔的 id 和等级）、`FoodSafety.Food`（饱和度按点数）。
+- 1.21.1 的垫片方法都是把原来那行代码原样搬过去，逻辑没改。报错文案和 `key` 里各段的顺序都留在共用代码里。
+
+**事件桥**（已做）
+- `ServerController`、`SurvivalActions`、`ValidationProtection`、`RespawnValidationFixture` 不再接收、也不再注册加载器事件。它们只提供普通方法，参数是玩家、物品、伤害来源这些原版对象；要取消就返回 true。
+- 1.21.1 的 `McbotServerControl` 注册全部监听，优先级和“已取消的也收”都照原来的，负责拆事件、按返回值取消。
+- 涉及的事件：聊天、拾取前／后、吃完东西、受伤后、攻击和即将受伤（保护和误伤）、横扫、箭的标记、踩耕地、死亡、掉落、tick、开服／关服、验收夹具的命令和重生。
+- Bot 发言走 `LoaderPlatform.chatAs`：先发一个聊天事件，让别的模组改或拦。默认实现返回 null，当作被拦。
 - Forge 1.20.1 没有横扫事件，要写一个 mixin，或者靠“即将受伤”那一道挡住。
 
 **mixin**
-- `BlockItemInvoker`、`ServerPlayerGameModeAccessor` 两版都能用，留在共用代码。
-- `VirtualPayloadMixin`、`PlayerListRespawnMixin` 各版本一份。
-- Forge 构建要配 mixin 和 refmap，`compatibilityLevel` 改成 `JAVA_17`。
+- `BlockItemInvoker`、`ServerPlayerGameModeAccessor` 两版都能用，留在共用的 `mcbot-server-control.mixins.json`，`compatibilityLevel` 已改成 `JAVA_17`。
+- `VirtualPayloadMixin`、`PlayerListRespawnMixin` 各版本一份，放在包 `com.mcbot.servercontrol.versionmixin`，配置是 `mcbot-server-control.version.mixins.json`。
+- NeoForge 的 `neoforge.mods.toml` 模板还在 `src/main/templates`，因为 `check-compat` 和版本测试按这个路径读。两份 mixin 配置都登记在里面。
+- Forge 构建要配 mixin 和 refmap。
 
 **检查**
-- `loaderNeutralCheck` 改成检查整个 `src/main/java` 里没有任何加载器的类。
+- `loaderNeutralCheck`（已改）：整个 `src/main/java` 里不准出现 `net.neoforged`、`net.minecraftforge`。
 - Java 17 没法在 NeoForge 那边检查：1.21.1 的类是 Java 21 字节码，不能用 `--release 17` 编。所以真正的检查是 Forge 1.20.1 能编过，要写进开发说明的离线验证。
 - 两边都编过、两边的 `controlTest` 都过，才算改完。
+- 物品数据这一批没有单元测试覆盖：`ItemDescriptions`、`ArmourAssessment`、`DefenseWeaponSafety`、`FoodSafety.assess`、药水这些路径都要游戏里的物品。`build check` 通过只能说明能编译，要靠实测：
+  - 生存：损耗、改名；
+  - ore-alpha：精准采集、时运；
+  - respawn、dead-save：损耗加改名；
+  - content：`custom_data`；
+  - station、machine-wait：酿造、附魔台；
+  - navigation-defense、survival-alpha：防身武器、吃东西、穿戴；
+  - guard 系列：武器和盾牌的检查。
 
-**两版输出要一样**：`ItemDescriptions.key` 和 `describe`、回执和观察的 JSON，在 1.20.1 上要和 1.21.1 一字不差（`potion=`、`enchantments=`、`damage=`、`name=`、`repairCost=`），因为运行端和它的测试按这些字符串认。
+**两版输出要一样**
+- `ItemDescriptions.key` 和 `describe`、回执和观察的 JSON，在 1.20.1 上要和 1.21.1 一字不差（`potion=`、`enchantments=`、`damage=`、`name=`、`repairCost=`），因为运行端和它的测试按这些字符串认。
+- 物品的 `components` 是线上协议（[server_body_protocol.md](server_body_protocol.md)），用 1.21 的组件 id 和 1.21 的形状：`"minecraft:damage"`、`"minecraft:enchantments": {levels: {...}}`、`"minecraft:custom_name"`……
+  - 按这些键读的有：client-runtime 的 `events.ts`、`survival-tasks.ts`，`SurvivalActions`、`ItemInteractions`（`minecraft:damage`），还有实测脚本。
+  - 1.20.1 的 `VersionItems.encodeData` 要把 NBT 翻成同样的键和形状。已知的几种照着翻：损耗、附魔、存储附魔、改名、修理花费、药水。别的 NBT 翻不了就让它失败，走现有的 UNSUPPORTED 或 `componentsComplete=false`，不能随手给出另一种形状。
+
+**写 1.20.1 层时要注意**（到时候再对着 1.20.1 的源码核）
+- `noExtraData`：1.20.1 新建的可损耗物品会带 `{Damage:0}`，这要算“没有额外数据”。不然所有工具都不算干净物品，`key` 也会多出东西。
+- 药水：没有药水时 `PotionUtils.getPotion` 给的是 `minecraft:empty`，要换成 null。不然 `key` 会多出 `potion=minecraft:empty`。
+- 食物：
+  - `saturation` 要给点数（营养 × 饱和系数 × 2），1.20.1 的 `FoodProperties` 存的是系数；
+  - 吃的时长用 `getUseDuration`；
+  - 炖菜在 1.20.1 是 `BowlFoodItem`，`FoodSafety` 的类检查会把它当成没核过的实现，要不要放行到时再定。
+- 附魔：
+  - 诅咒用 `Enchantment.isCurse()`，绑定用 `EnchantmentHelper.hasBindingCurse`；
+  - 附魔台的线索号是附魔注册表的数字 id。
+- `otherData`：要把 NBT 的键对到 `ItemData.Kind` 上，如 `Damage`、`display.Name`、`display.Lore`、`RepairCost`、`Enchantments`、`StoredEnchantments`、`Potion`、`CustomPotionEffects`，以及盾牌的 `BlockEntityTag`。
+- 熔炉和酿造台的存档键（`BurnTime`、`CookTime`、`CookTimeTotal`、`BrewTime`）两版一样。
 
 **jar 名**：1.20.1 的 jar 不能也叫 `mcbot-server-control-<版本>.jar`。WebUI 和 `start-server-play.mjs` 按 `^mcbot-server-control-.*\.jar$` 找核心，名字要能分出版本，到 Node 侧那一步再定。
 
 **顺序**
-1. 共用代码改成 Java 17 写法（10-21 已改，没提交；`getFirst/getLast/removeFirst/removeLast/addFirst` 换成下标，`reversed()` 换成 `Collections.reverse`，`Math.clamp` 换成 `Mth.clamp`，Gson 的 `JsonObject.isEmpty()` 换成 `size()`，因为 1.20.1 带的 Gson 2.10 没有它）。
+1. 共用代码改成 Java 17 写法（10-21 已提交）：
+   - `getFirst/getLast/removeFirst/removeLast/addFirst` 换成下标；
+   - `reversed()` 换成 `Collections.reverse`；
+   - `Math.clamp` 换成 `Mth.clamp`；
+   - Gson 的 `JsonObject.isEmpty()` 换成 `size()`，因为 1.20.1 带的 Gson 2.10 没有它。
 2. 拆出 1.21.1 层：文件搬家、事件桥、垫片，1.21.1 行为不变。
-   - 检查：NeoForge 的 `build check`，加上 1.21.1 隔离服实测重跑。
-   - 这一步会改 main 的核心。合进 main 的时机由用户定：v0.1 发版前还是发版后。
+   - 10-21 已分四步提交，离线检查通过。
+   - 还差 1.21.1 隔离服实测重跑。
+   - 这一步会改 main 的核心。合进 main 的时机由用户定：v0.1 发版前还是发版后。build-speed 分支改过 `BuildTask`，合并时会有小冲突。
 3. 写 1.20.1 层，直到编译和 `controlTest` 都过。
 4. 搭 1.20.1 隔离服，跑实测。
 5. 附属模组、Node 侧、整合包试玩。

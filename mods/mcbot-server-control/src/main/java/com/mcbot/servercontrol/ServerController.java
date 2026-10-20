@@ -110,7 +110,7 @@ final class ServerController implements ControlSession.Game {
         JsonObject death=lastDeath.deepCopy();
         JsonObject drops=death.getAsJsonObject("drops");
         if(drops==null||drops.get("count").getAsInt()==0)return death;
-        var level=server.getLevel(net.minecraft.resources.ResourceKey.create(net.minecraft.core.registries.Registries.DIMENSION,net.minecraft.resources.ResourceLocation.parse(death.get("dimension").getAsString())));
+        var level=server.getLevel(net.minecraft.resources.ResourceKey.create(net.minecraft.core.registries.Registries.DIMENSION,Version.id(death.get("dimension").getAsString())));
         BlockPos at=BlockPos.containing(point(death.getAsJsonObject("position")));
         if(level==null||!level.hasChunkAt(at)){drops.add("remaining",JsonNull.INSTANCE);return death;}
         int remaining=0;

@@ -101,7 +101,7 @@ final class VanillaWorkstations {
         public StationProgress progress(Level level,BlockPos pos,BlockState state) {
             if(!block(state)||!(level.getBlockEntity(pos) instanceof AbstractFurnaceBlockEntity furnace))return null;
             ItemStack input=furnace.getItem(0),fuel=furnace.getItem(1),result=furnace.getItem(2);
-            var saved=furnace.saveWithoutMetadata(level.registryAccess());
+            var saved=Version.savedData(furnace,level);
             int burning=saved.getShort("BurnTime"),cooked=saved.getShort("CookTime"),total=saved.getShort("CookTimeTotal");
             boolean lit=state.hasProperty(AbstractFurnaceBlock.LIT)&&state.getValue(AbstractFurnaceBlock.LIT);
             int left=input.isEmpty()?0:total<=0?-1:Math.max(0,input.getCount()*total-cooked);
@@ -182,7 +182,7 @@ final class VanillaWorkstations {
         /** Bottles 0-2, reagent 3, blaze powder 4; brew time counts down from 400 (1.21.1 saved key BrewTime). */
         @Override public StationProgress progress(Level level,BlockPos pos,BlockState state) {
             if(!block(state)||!(level.getBlockEntity(pos) instanceof BrewingStandBlockEntity stand))return null;
-            int brewing=stand.saveWithoutMetadata(level.registryAccess()).getShort("BrewTime");
+            int brewing=Version.savedData(stand,level).getShort("BrewTime");
             return new StationProgress(List.of(stand.getItem(3)),List.of(stand.getItem(0),stand.getItem(1),stand.getItem(2)),stand.getItem(4),brewing>0,stand.getItem(3).isEmpty()?0:brewing>0?brewing:-1,-1);
         }
     };
@@ -192,11 +192,10 @@ final class VanillaWorkstations {
         /** The three offers as the player sees them: level requirement and the one enchantment the game reveals. */
         @Override public List<StationOption> options(ServerPlayer player,AbstractContainerMenu menu) {
             EnchantmentMenu table=(EnchantmentMenu)menu;List<StationOption> options=new ArrayList<>();
-            var ids=player.level().registryAccess().registryOrThrow(net.minecraft.core.registries.Registries.ENCHANTMENT).asHolderIdMap();
             for(int i=0;i<3;i++) {
                 if(table.costs[i]<=0)continue;
                 String hint="";
-                if(table.enchantClue[i]>=0){var holder=ids.byId(table.enchantClue[i]);hint=(holder==null?"?":holder.unwrapKey().map(k->k.location().toString()).orElse("?"))+" "+table.levelClue[i]+" (and maybe more)";}
+                if(table.enchantClue[i]>=0)hint=VersionItems.enchantmentByNumber(player.level().registryAccess(),table.enchantClue[i])+" "+table.levelClue[i]+" (and maybe more)";
                 options.add(new StationOption(i,"slot"+(i+1),ItemStack.EMPTY,table.costs[i],hint));
             }
             return options;

@@ -2,14 +2,10 @@ package com.mcbot.servercontrol;
 
 import com.google.gson.*;
 import java.util.*;
-import net.minecraft.core.component.DataComponents;
-import net.minecraft.core.registries.BuiltInRegistries;
 import net.minecraft.world.entity.EquipmentSlot;
 import net.minecraft.world.entity.LivingEntity;
 import net.minecraft.world.entity.player.Inventory;
 import net.minecraft.world.item.ItemStack;
-import net.minecraft.world.item.alchemy.PotionContents;
-import net.minecraft.world.item.enchantment.ItemEnchantments;
 import static com.mcbot.servercontrol.Protocol.*;
 
 /**
@@ -23,32 +19,29 @@ final class ItemDescriptions {
     /** Item id, plus the meaningful components in brackets when the stack has any: {@code minecraft:potion[potion=minecraft:swiftness]}. */
     static String key(ItemStack stack) {
         String id=NativeWorkstation.id(stack);
-        if(stack.isEmpty()||stack.getComponentsPatch().isEmpty())return id;
+        if(stack.isEmpty()||VersionItems.noExtraData(stack))return id;
         List<String> parts=new ArrayList<>();
-        PotionContents potion=stack.get(DataComponents.POTION_CONTENTS);
-        if(potion!=null)potion.potion().flatMap(h->h.unwrapKey()).ifPresent(k->parts.add("potion="+k.location()));
-        enchantments(stack.get(DataComponents.ENCHANTMENTS),"enchantments",parts);
-        enchantments(stack.get(DataComponents.STORED_ENCHANTMENTS),"stored",parts);
-        Integer damage=stack.get(DataComponents.DAMAGE);if(damage!=null&&damage>0)parts.add("damage="+damage);
-        if(stack.has(DataComponents.CUSTOM_NAME))parts.add("name="+stack.getHoverName().getString());
-        Integer repair=stack.get(DataComponents.REPAIR_COST);if(repair!=null&&repair>0)parts.add("repairCost="+repair);
-        // Anything else is named by its component type, so two different stacks never look identical.
-        for(var entry:stack.getComponentsPatch().entrySet()) {
-            var type=entry.getKey();
-            if(type==DataComponents.POTION_CONTENTS||type==DataComponents.ENCHANTMENTS||type==DataComponents.STORED_ENCHANTMENTS||type==DataComponents.DAMAGE||type==DataComponents.CUSTOM_NAME||type==DataComponents.REPAIR_COST)continue;
-            var key=BuiltInRegistries.DATA_COMPONENT_TYPE.getKey(type);parts.add((entry.getValue().isPresent()?"":"-")+(key==null?"component":key.toString()));
-        }
+        var potion=VersionItems.potion(stack);
+        if(potion!=null)parts.add("potion="+potion);
+        enchantments(VersionItems.enchantments(stack),"enchantments",parts);
+        enchantments(VersionItems.storedEnchantments(stack),"stored",parts);
+        int damage=VersionItems.damage(stack);if(damage>0)parts.add("damage="+damage);
+        if(VersionItems.customName(stack))parts.add("name="+stack.getHoverName().getString());
+        int repair=VersionItems.repairCost(stack);if(repair>0)parts.add("repairCost="+repair);
+        // Anything else is named by its data id, so two different stacks never look identical.
+        parts.addAll(VersionItems.otherData(stack,DESCRIBED));
         return parts.isEmpty()?id:id+"["+String.join(",",parts)+"]";
     }
-    private static void enchantments(ItemEnchantments enchantments,String label,List<String> parts) {
+    private static final Set<ItemData.Kind> DESCRIBED=EnumSet.of(ItemData.Kind.POTION,ItemData.Kind.ENCHANTMENTS,ItemData.Kind.STORED_ENCHANTMENTS,ItemData.Kind.DAMAGE,ItemData.Kind.CUSTOM_NAME,ItemData.Kind.REPAIR_COST);
+    private static void enchantments(List<ItemData.Enchant> enchantments,String label,List<String> parts) {
         List<String> list=enchantmentList(enchantments);
         if(!list.isEmpty())parts.add(label+"="+String.join("+",list));
     }
     /** "id level" for each enchantment, sorted. */
-    private static List<String> enchantmentList(ItemEnchantments enchantments) {
-        if(enchantments==null||enchantments.isEmpty())return List.of();
+    private static List<String> enchantmentList(List<ItemData.Enchant> enchantments) {
+        if(enchantments.isEmpty())return List.of();
         List<String> list=new ArrayList<>();
-        for(var entry:enchantments.entrySet())list.add(entry.getKey().unwrapKey().map(k->k.location().toString()).orElse("?")+" "+entry.getIntValue());
+        for(var enchantment:enchantments)list.add(enchantment.id()+" "+enchantment.level());
         Collections.sort(list);return list;
     }
     /** What a living entity holds and wears ({@link EquipmentView}), or null when every slot is empty. */
@@ -58,8 +51,8 @@ final class ItemDescriptions {
             ItemStack stack=entity.getItemBySlot(slot);
             if(stack.isEmpty())continue;
             boolean worn=stack.isDamageableItem();
-            slots.put(slot.getName(),new EquipmentView.Item(NativeWorkstation.id(stack),stack.getCount(),enchantmentList(stack.get(DataComponents.ENCHANTMENTS)),
-                stack.has(DataComponents.CUSTOM_NAME)?stack.getHoverName().getString():null,worn?stack.getDamageValue():0,worn?stack.getMaxDamage():0));
+            slots.put(slot.getName(),new EquipmentView.Item(NativeWorkstation.id(stack),stack.getCount(),enchantmentList(VersionItems.enchantments(stack)),
+                VersionItems.customName(stack)?stack.getHoverName().getString():null,worn?stack.getDamageValue():0,worn?stack.getMaxDamage():0));
         }
         return EquipmentView.equipment(slots);
     }

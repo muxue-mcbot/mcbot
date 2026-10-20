@@ -4,17 +4,10 @@ import com.google.gson.*;
 import java.util.*;
 import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.world.entity.EquipmentSlot;
-import net.minecraft.world.entity.ai.attributes.AttributeModifier;
-import net.minecraft.world.entity.ai.attributes.Attributes;
 import net.minecraft.world.entity.player.Inventory;
 import net.minecraft.world.item.ArmorItem;
 import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.item.ShieldItem;
-import net.minecraft.world.item.enchantment.EnchantmentEffectComponents;
-import net.minecraft.world.item.enchantment.EnchantmentHelper;
-import net.minecraft.world.item.enchantment.ItemEnchantments;
-import net.minecraft.core.component.DataComponents;
-import net.minecraft.tags.EnchantmentTags;
 import static com.mcbot.servercontrol.Protocol.*;
 
 /**
@@ -67,26 +60,16 @@ final class ArmourAssessment {
     }
     /** head/chest/legs/feet for vanilla humanoid armour, offhand for a shield, else null. */
     static String part(ItemStack stack) {
-        if(stack.getItem() instanceof ArmorItem armor&&armor.getEquipmentSlot().getType()==EquipmentSlot.Type.HUMANOID_ARMOR)return armor.getEquipmentSlot().getName();
+        if(stack.getItem() instanceof ArmorItem armor&&Version.armourSlot(armor.getEquipmentSlot()))return armor.getEquipmentSlot().getName();
         if(stack.getItem() instanceof ShieldItem)return "offhand";
         return null;
     }
     /** slotPart is the armour slot name whose attribute modifiers count, null for the off hand (no armour points). */
     private static ArmourChoice.Piece piece(ItemStack stack,String slotPart) {
-        double[] sums={0,0};
-        if(slotPart!=null) {
-            EquipmentSlot slot=EquipmentSlot.byName(slotPart);
-            stack.forEachModifier(slot,(attribute,modifier)->{
-                if(modifier.operation()!=AttributeModifier.Operation.ADD_VALUE)return;
-                if(attribute.value()==Attributes.ARMOR.value())sums[0]+=modifier.amount();
-                else if(attribute.value()==Attributes.ARMOR_TOUGHNESS.value())sums[1]+=modifier.amount();
-            });
-        }
-        int levels=0;
-        ItemEnchantments enchantments=stack.get(DataComponents.ENCHANTMENTS);
+        double[] sums=slotPart==null?new double[]{0,0}:VersionItems.armourPoints(stack,EquipmentSlot.byName(slotPart));
         // Curses (binding, vanishing) are not worth anything; binding is judged on its own below.
-        if(enchantments!=null)for(var entry:enchantments.entrySet())if(!entry.getKey().is(EnchantmentTags.CURSE))levels+=entry.getIntValue();
+        int levels=VersionItems.nonCurseLevels(stack);
         int left=stack.isDamageableItem()?stack.getMaxDamage()-stack.getDamageValue():Integer.MAX_VALUE;
-        return new ArmourChoice.Piece(sums[0],sums[1],levels,left,EnchantmentHelper.has(stack,EnchantmentEffectComponents.PREVENT_ARMOR_CHANGE));
+        return new ArmourChoice.Piece(sums[0],sums[1],levels,left,VersionItems.binding(stack));
     }
 }

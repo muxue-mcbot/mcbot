@@ -18,6 +18,6 @@ final class OffhandEquip {
      */
     static boolean supported(boolean offhandAsked, EquipmentSlot target, boolean empty) {
         if (empty) return false;
-        return offhandAsked || target == EquipmentSlot.OFFHAND || target.getType() == EquipmentSlot.Type.HUMANOID_ARMOR;
+        return offhandAsked || target == EquipmentSlot.OFFHAND || Version.armourSlot(target);
     }
 }

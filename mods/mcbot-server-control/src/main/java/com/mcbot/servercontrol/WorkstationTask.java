@@ -252,7 +252,7 @@ final class WorkstationTask implements BodyTask {
         int cookTime=recipe.get().ticks();
         java.util.function.ToIntFunction<ItemStack> burn=stack->safely(()->adapter.burnTicks(block,stack),0);
         // Input: from plain stacks, up to the slot's room.
-        int room=Math.min(count,input.getDefaultMaxStackSize()-inSlot.getCount()),put=0;
+        int room=Math.min(count,VersionItems.maxStackSize(input)-inSlot.getCount()),put=0;
         for(int i=0;i<36&&put<room;i++){ItemStack s=inventory.getItem(i);if(plain(s)&&s.is(input))put+=transfer(player,menu,i,inputSlot,room-put);}
         int queued=menu.getSlot(inputSlot).getItem().getCount();
         // Fuel: enough burn time for everything queued; a lit furnace's current burn is not counted (at most one item extra).

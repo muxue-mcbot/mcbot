@@ -13,7 +13,6 @@ import net.minecraft.tags.TagKey;
 import net.minecraft.world.entity.player.Player;
 import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.item.Items;
-import net.minecraft.world.item.enchantment.Enchantments;
 import net.minecraft.world.level.block.Block;
 import net.minecraft.world.level.block.FallingBlock;
 import net.minecraft.world.level.block.state.BlockState;
@@ -33,7 +32,7 @@ final class ResourceCatalog {
         String wire(){return name().toLowerCase(Locale.ROOT);}
     }
     /** Convention tags (c:): the same ids on NeoForge and Fabric. */
-    static final TagKey<Block> ORES=TagKey.create(Registries.BLOCK,ResourceLocation.fromNamespaceAndPath("c","ores")),STONES=TagKey.create(Registries.BLOCK,ResourceLocation.fromNamespaceAndPath("c","stones"));
+    static final TagKey<Block> ORES=TagKey.create(Registries.BLOCK,Version.id("c","ores")),STONES=TagKey.create(Registries.BLOCK,Version.id("c","stones"));
     static final Set<String> FIRST_STONES=Set.of("minecraft:stone","minecraft:deepslate","minecraft:granite","minecraft:diorite","minecraft:andesite");
     /** A requested resource: an explicit block ID or a block tag (`#c:ores`). Only syntax here; the live tag decides at scan time. */
     static boolean selector(String value) {
@@ -62,8 +61,8 @@ final class ResourceCatalog {
     static Selection select(Set<String> selectors) {
         Set<Block> blocks=new HashSet<>();List<TagKey<Block>> tags=new ArrayList<>();
         for(String value:selectors) {
-            if(value.startsWith("#")){tags.add(TagKey.create(Registries.BLOCK,ResourceLocation.parse(value.substring(1))));continue;}
-            var block=BuiltInRegistries.BLOCK.getOptional(ResourceLocation.parse(value)).orElse(null);
+            if(value.startsWith("#")){tags.add(TagKey.create(Registries.BLOCK,Version.id(value.substring(1))));continue;}
+            var block=BuiltInRegistries.BLOCK.getOptional(Version.id(value)).orElse(null);
             if(block==null||kind(block.defaultBlockState())==null)throw error("UNSUPPORTED","Resource "+value+" is not a natural log, ore or stone (by block tags)");
             blocks.add(block);
         }
@@ -94,7 +93,7 @@ final class ResourceCatalog {
         if(kind==null)return List.of();
         ServerLevel level=body.serverLevel();
         ItemStack plain=new ItemStack(kind==Kind.LOG?Items.NETHERITE_AXE:Items.NETHERITE_PICKAXE),silk=plain.copy();
-        silk.enchant(level.registryAccess().registryOrThrow(Registries.ENCHANTMENT).getHolderOrThrow(Enchantments.SILK_TOUCH),1);
+        VersionItems.enchantSilkTouch(silk,level.registryAccess());
         Map<String,Integer> ordinary=roll(body,pos,state,plain),silky=roll(body,pos,state,silk);
         List<Drop> drops=new ArrayList<>();
         ordinary.forEach((item,least)->drops.add(new Drop(item,silky.containsKey(item)?"any":"no_silk_touch",least)));

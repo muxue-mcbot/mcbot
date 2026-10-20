@@ -3,9 +3,7 @@ package com.mcbot.servercontrol;
 import com.google.gson.*;
 import it.unimi.dsi.fastutil.ints.Int2ObjectOpenHashMap;
 import net.minecraft.core.*;
-import net.minecraft.core.component.DataComponentMap;
 import net.minecraft.core.registries.BuiltInRegistries;
-import net.minecraft.resources.RegistryOps;
 import net.minecraft.nbt.*;
 import net.minecraft.network.protocol.game.*;
 import net.minecraft.server.level.ServerPlayer;
@@ -108,9 +106,9 @@ final class SurvivalActions {
     }
     JsonObject components(ItemStack stack) {
         if(stack.isEmpty()) return new JsonObject();
-        for(var component:stack.getComponents()) if(component.type().isTransient())
-            throw error("UNSUPPORTED","Transient item component has no complete persistent codec: "+BuiltInRegistries.DATA_COMPONENT_TYPE.getKey(component.type()));
-        Tag encoded=DataComponentMap.CODEC.encodeStart(RegistryOps.create(NbtOps.INSTANCE,player.level().registryAccess()),stack.getComponents()).result()
+        String unsaved=VersionItems.transientData(stack);
+        if(unsaved!=null)throw error("UNSUPPORTED","Transient item component has no complete persistent codec: "+unsaved);
+        Tag encoded=VersionItems.encodeData(stack,player.level().registryAccess())
             .orElseThrow(()->error("UNSUPPORTED","Item components cannot be serialized; refusing an incomplete item guard"));
         if(!(encoded instanceof CompoundTag values)) throw error("UNSUPPORTED","Item components have no complete compound representation");
         JsonObject result=new JsonObject();
