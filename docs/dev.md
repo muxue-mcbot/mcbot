@@ -5,7 +5,7 @@
 ## 当前路径
 
 - `client-runtime/`：共享Body契约、ServerBody／ClientBody实现、MCP工具、任务与陪伴状态。
-- `mods/mcbot-server-control/`：当前主线核心模组，MC1.21.1／NeoForge21.1.217服务端身体与原生交互。
+- `mods/mcbot-server-control/`：当前主线核心模组，MC1.21.1／NeoForge21.1.217服务端身体与原生交互。共用代码在 `src/main/java`（Java 17 写法、只用原版类），1.21.1 NeoForge 的入口、事件桥和版本垫片在 `src/neoforge-1.21.1`。`mods/mcbot-server-control-forge1201/` 是 1.20.1 Forge 的构建工程，编同一份共用代码加 `src/forge-1.20.1`；1.20.1 层还没写，现在编不过，不在下面的离线验证里（见 [1.20.1 Forge 移植](forge_1201_port.md)）。
 - 适配附属模组（各自用自己的 `gradlew` 构建，编译时要用核心的 jar）：`mods/mcbot-kaleidoscope-cookery/`（森罗厨房）、`mods/mcbot-sophisticated-backpacks/`（精致背包）、`mods/mcbot-iron-furnaces/`（铁炉）、`mods/mcbot-yes-steve-model/`（Yes Steve Model 外观）、`mods/mcbot-farmers-delight/`（农夫乐事）。锁的版本和证据见 `compat.json`，接口见 [Mod 适配](mod_adapters.md)。
 - `scripts/companion.mjs`、`scripts/driver/`、`scripts/agents/`：Claude／Codex会话驱动和事件调度。`companion.mjs` 是入口，实现按职责分在 `scripts/driver/`（各模块管什么见[状态归属](state_ownership.md)最后一节）；驱动器只能 import `scripts/` 里的模块，打安装包时按 import 收集。
 - 程序目录和数据目录分开（`scripts/paths.mjs`，见[更新方式设计](update_design.md)第一节）：本文说的 `runtime/`、`memory/` 都在数据目录里。开发时数据目录就是仓库根目录；安装版（程序目录里有安装标记 `install.json`）用 `%LOCALAPPDATA%\mcbot`；环境变量 `MCBOT_HOME` 可以另指。Agent 的工作目录始终是程序目录（Claude Code 从这里读 `CLAUDE.md`）。
@@ -41,7 +41,7 @@ foreach ($m in 'kaleidoscope-cookery', 'sophisticated-backpacks', 'iron-furnaces
 
 Linux 上跑 Gradle 要用 UTF-8 locale（`LC_ALL=C.UTF-8 bash ./gradlew build`），否则 `HostingRulesTest` 里带中文的存档路径会报 `InvalidPathException`（10-10 云端复验时遇到，Windows 不受影响）。
 
-Java检查由`controlTest`接入`check`，标准Gradle `test`任务关闭；`check`还包括`loaderNeutralCheck`：只有`build.gradle`里登记的加载器文件能用`net.neoforged`，其余代码只用原版类，为以后的Fabric版留边界（见[工作站设计](workstation_design.md)）；应查看实际检查输出，不能仅凭`test SKIPPED`断言没有检查。Windows原生窗口截图、进程控制等用例不能外推为云端通过。
+Java检查由`controlTest`接入`check`，标准Gradle `test`任务关闭；`check`还包括`loaderNeutralCheck`：共用的`src/main/java`里不准出现`net.neoforged`、`net.minecraftforge`，加载器和版本专有的代码放版本目录，为1.20.1 Forge和以后的Fabric版留边界（见[工作站设计](workstation_design.md)）；应查看实际检查输出，不能仅凭`test SKIPPED`断言没有检查。Windows原生窗口截图、进程控制等用例不能外推为云端通过。
 
 ## 新加附属模组的步骤
 

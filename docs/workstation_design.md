@@ -89,11 +89,11 @@
 
 交付计划里已经定了以后要支持更新的 1.21.x NeoForge 和 Fabric。这次的约束：
 
-1. **核心不碰加载器**：除了下面登记的“加载器文件”，模组源码里不准出现 `net.neoforged`。构建时有检查（`loaderNeutralCheck`），违反就失败。目前 ServerBody 的绝大部分本来就只用原版类，加载器相关的集中在：入口和事件注册（`McbotServerControl`）、事件处理参数（`ServerController`、`SurvivalActions`、`ValidationProtection`、`RespawnValidationFixture`）。Iron Furnaces 的适配（`IronFurnaceAdapter`）原先也在核心里，现已移到独立附属模组 `mcbot-iron-furnaces`，不再受这条检查约束。
+1. **核心不碰加载器**：共用代码（`src/main/java`）里不准出现 `net.neoforged`、`net.minecraftforge`。构建时有检查（`loaderNeutralCheck`），违反就失败。加载器相关的都在版本目录（1.21.1 NeoForge 是 `src/neoforge-1.21.1`）：入口和事件注册（`McbotServerControl`）、`LoaderPlatform` 的实现（`NeoForgePlatform`）。`ServerController`、`SurvivalActions`、`ValidationProtection`、`RespawnValidationFixture` 原来直接收事件，10-21 起改成普通方法，由入口拆开事件再调用（见 [1.20.1 Forge 移植](forge_1201_port.md)的事件桥）。Iron Furnaces 的适配（`IronFurnaceAdapter`）原先也在核心里，现已移到独立附属模组 `mcbot-iron-furnaces`，不再受这条检查约束。
 2. **加载器服务 `LoaderPlatform`**：模组版本（NeoForge 的 `ModList`／Fabric 的 `FabricLoader`）、燃烧时间（NeoForge 的 `getBurnTime`／Fabric 的 `FuelRegistry`）、以后 8b 的物品能力（NeoForge `IItemHandler`／Fabric `Storage<ItemVariant>`，后者自带事务）。核心只调这个接口。
 3. **标签用 `c:` 命名空间**：`c:ores`、`c:stones` 在 NeoForge 和 Fabric 上是同一个标签，代码里直接用 `TagKey.create`，不用 NeoForge 的 `Tags` 类。
 4. **映射**：NeoForge 用 Mojang 官方名＋Parchment；Fabric Loom 也可以用 `officialMojangMappings()`，所以同一份核心源码两边都能编译。
-5. **以后的工程结构**：真正开始做 Fabric 时，拆成 `common`（核心＋公开 API）、`neoforge`、`fabric` 三个子项目（MultiLoader 模板的做法，不引入 Architectury 运行时依赖）。事件桥（tick、聊天、拾取、受伤、交互）要在两边各写一份：Fabric API 没有的事件（比如拾取前、即将受伤）要用 Mixin。现在不拆，只守住第 1 条，拆的时候就是搬文件。
+5. **工程结构**：10-21 起按版本目录拆（见第 6 条）：共用代码一份，每个“版本加加载器”一个目录、一个构建工程，各自只编共用代码加自己的目录（和 MultiLoader 模板的意思一样，不引入 Architectury 运行时依赖）。以后做 Fabric 也是再加一个目录，事件桥（tick、聊天、拾取、受伤、交互）在那边再写一份：Fabric API 没有的事件（比如拾取前、即将受伤）要用 Mixin。
 6. **游戏版本比加载器更难**：1.21.2 起配方和燃料的接口都改了（配方展示、`FuelValues`、`RecipeInput`），所以配方读取放在 `RecipeSource` 后面，换版本时只重写这几个实现。2026-10-21 起要同时支持 1.20.1 Forge（用户要支持的整合包在这个版本上），用户选了“共用代码加版本层”：共用代码放在 `src/main/java`，按 Java 17 写，不碰加载器；每个“版本加加载器”的组合一个目录，放入口、事件桥和版本垫片。不用预处理器在一份源码里写条件编译。做法见 [1.20.1 Forge 移植评估](forge_1201_port.md)。
 7. **公开 API 只用原版类型和 JDK 类型**：附属模组的适配逻辑因此能在两个加载器之间复用大部分；但被适配的模组在两个加载器上往往是不同的代码（比如农夫乐事的 Fabric 移植版类名不同），适配器本身仍按“模组＋加载器＋版本”锁定。`McbotApi.versionsMatch` 改为核对当前加载器自己的版本。
 
