@@ -29,8 +29,6 @@ import net.minecraft.world.inventory.ClickType;
 import net.minecraft.world.item.*;
 import net.minecraft.util.Mth;
 import net.minecraft.world.level.ClipContext;
-import net.minecraft.world.level.pathfinder.PathType;
-import net.minecraft.world.level.pathfinder.WalkNodeEvaluator;
 import net.minecraft.world.phys.AABB;
 import net.minecraft.world.phys.HitResult;
 import net.minecraft.world.phys.Vec3;
@@ -748,9 +746,9 @@ final class GuardCombat {
                 for(int y=top;y>=top-2;y--) {
                     BlockPos pos=new BlockPos(x,y,z);
                     if(!body.serverLevel().isLoaded(pos))return null;
-                    PathType type=WalkNodeEvaluator.getPathTypeStatic(walker,pos);
-                    if(type==PathType.WALKABLE)return WalkNodeEvaluator.getPathTypeStatic(walker,pos.above())==PathType.OPEN?new Vec3(x+0.5,y,z+0.5):null; // and room for the head
-                    if(type!=PathType.OPEN)return null; // the first non-air from above decides
+                    var type=VersionPath.typeAt(walker,pos);
+                    if(type==VersionPath.WALKABLE)return VersionPath.typeAt(walker,pos.above())==VersionPath.OPEN?new Vec3(x+0.5,y,z+0.5):null; // and room for the head
+                    if(type!=VersionPath.OPEN)return null; // the first non-air from above decides
                 }
                 return null;
             }

@@ -253,12 +253,12 @@ final class NativeNavigation {
             for(int y=surface;y>=fy-2;y--){
                 BlockPos pos=new BlockPos(fx+dx,y,fz+dz);
                 if(!body.serverLevel().isLoaded(pos))break;
-                PathType type=WalkNodeEvaluator.getPathTypeStatic(model,pos);
-                if(type==PathType.OPEN)continue;
+                var type=VersionPath.typeAt(model,pos);
+                if(type==VersionPath.OPEN)continue;
                 // The first non-air from above decides: a bank to stand on, or water, a wall or danger (nothing here).
                 Vec3 spot=new Vec3(pos.getX()+0.5,pos.getY(),pos.getZ()+0.5);
                 // The bank right at the water's edge is WATER_BORDER to vanilla, not WALKABLE: it is the spot a swimmer climbs onto.
-                if((type==PathType.WALKABLE||type==PathType.WATER_BORDER)&&!badShores.contains(pos)&&allowed.test(spot)){
+                if((type==VersionPath.WALKABLE||type==VersionPath.WATER_BORDER)&&!badShores.contains(pos)&&allowed.test(spot)){
                     double s=spot.distanceTo(feet)+0.5*spot.distanceTo(destination);
                     if(s<score){score=s;best=spot;}
                 }
@@ -274,11 +274,11 @@ final class NativeNavigation {
             int drop=wide?1:maxDrop;
             model=drop>0?new Zombie(EntityType.ZOMBIE,body.level()){@Override public int getMaxFallDistance(){return drop;}}:new Zombie(EntityType.ZOMBIE,body.level());
             // Routes never go through water (a body already in water swims out first, swim()) or powder snow. Wooden doors are opened by hand on the way (doors()).
-            model.setPathfindingMalus(PathType.WATER,-1);model.setPathfindingMalus(PathType.WATER_BORDER,8);
+            model.setPathfindingMalus(VersionPath.WATER,-1);model.setPathfindingMalus(VersionPath.WATER_BORDER,8);
             // Next to something burning: never, except a pickup next to a block that only hurts when stepped on (nearHeat()).
-            model.setPathfindingMalus(PathType.DANGER_FIRE,nearHeat?HEAT_EDGE_MALUS:-1);model.setPathfindingMalus(PathType.DAMAGE_FIRE,-1);
-            model.setPathfindingMalus(PathType.DANGER_POWDER_SNOW,-1);model.setPathfindingMalus(PathType.POWDER_SNOW,-1);
-            model.setPathfindingMalus(PathType.DANGER_OTHER,-1);model.setPathfindingMalus(PathType.DAMAGE_OTHER,-1);
+            model.setPathfindingMalus(VersionPath.DANGER_FIRE,nearHeat?HEAT_EDGE_MALUS:-1);model.setPathfindingMalus(VersionPath.DAMAGE_FIRE,-1);
+            model.setPathfindingMalus(VersionPath.DANGER_POWDER_SNOW,-1);model.setPathfindingMalus(VersionPath.POWDER_SNOW,-1);
+            model.setPathfindingMalus(VersionPath.DANGER_OTHER,-1);model.setPathfindingMalus(VersionPath.DAMAGE_OTHER,-1);
             evaluator=new RouteEvaluator();evaluator.leaps=!wide;evaluator.nearHeat=nearHeat;evaluator.setCanPassDoors(true);evaluator.setCanOpenDoors(true);evaluator.setCanFloat(false);
         }
     }
@@ -294,9 +294,9 @@ final class NativeNavigation {
             for(int y=top;y>=top-5;y--){
                 BlockPos pos=new BlockPos(x,y,z);
                 if(!body.serverLevel().isLoaded(pos))break;
-                PathType type=WalkNodeEvaluator.getPathTypeStatic(model,pos);
-                if(type==PathType.WALKABLE)return new Vec3(x+0.5,y,z+0.5);
-                if(type!=PathType.OPEN)break; // the first non-air from above decides: a wall, water or danger is no floor
+                var type=VersionPath.typeAt(model,pos);
+                if(type==VersionPath.WALKABLE)return new Vec3(x+0.5,y,z+0.5);
+                if(type!=VersionPath.OPEN)break; // the first non-air from above decides: a wall, water or danger is no floor
             }
         }
         return null;
@@ -403,7 +403,7 @@ final class NativeNavigation {
         "onGround",body.onGround(),"stage",shore!=null?"swim":route==null?"planning":body.onGround()?"walk":"air");}
 
     /** Walking nodes plus one-block gap leaps, minus any node outside the caller's authorized region. */
-    private static final class RouteEvaluator extends WalkNodeEvaluator {
+    private static final class RouteEvaluator extends RouteEvaluatorBase {
         Predicate<Vec3> allowed=p->true;
         /** Gap leaps; a long walk goes round a gap instead (a missed leap by a cliff is a long fall). */
         boolean leaps=true;
@@ -429,8 +429,8 @@ final class NativeNavigation {
             int kept=0;
             for(int i=0;i<count;i++){
                 Node next=output[i];
-                if((next.type==PathType.BLOCKED||next.costMalus<0||node.y-next.y>mob.getMaxFallDistance()))continue;
-                if(next.type==PathType.DANGER_FIRE&&!(nearHeat&&flameFree(this::flame,next.x,next.y,next.z)))continue;
+                if((next.type==VersionPath.BLOCKED||next.costMalus<0||node.y-next.y>mob.getMaxFallDistance()))continue;
+                if(next.type==VersionPath.DANGER_FIRE&&!(nearHeat&&flameFree(this::flame,next.x,next.y,next.z)))continue;
                 if(allowed.test(new Vec3(next.x+0.5,next.y,next.z+0.5)))output[kept++]=next;
             }
             return kept;
@@ -445,27 +445,27 @@ final class NativeNavigation {
             if(!open(x,y+2,z)||!passable(x+dx,y-1,z+dz))return null;
             for(int h=0;h<=2;h++)if(!open(x+dx,y+h,z+dz))return null;
             int lx=x+2*dx,lz=z+2*dz;
-            if(!open(lx,y+2,lz)||getCachedPathType(lx,y,lz)!=PathType.WALKABLE)return null;
+            if(!open(lx,y+2,lz)||cachedType(lx,y,lz)!=VersionPath.WALKABLE)return null;
             double floor=getFloorLevel(new BlockPos(x,y,z)),landingFloor=getFloorLevel(new BlockPos(lx,y,lz));
             if(landingFloor>floor+0.01||landingFloor<floor-0.51)return null;
             Node landing=getNode(lx,y,lz);
             if(landing.closed)return null;
-            landing.type=PathType.WALKABLE;landing.costMalus=Math.max(landing.costMalus,0);
+            landing.type=VersionPath.WALKABLE;landing.costMalus=Math.max(landing.costMalus,0);
             return landing;
         }
         /** Fire or lava: open flame, never stood next to even for a pickup. */
         private boolean flame(BlockPos pos){
-            BlockState state=currentContext.getBlockState(pos);
+            BlockState state=blockAt(pos);
             return state.is(BlockTags.FIRE)||state.getFluidState().is(FluidTags.LAVA);
         }
         /** No collision at all (the gap floor may hold a liquid). */
         private boolean passable(int x,int y,int z){
-            CollisionGetter level=currentContext.level();BlockPos pos=new BlockPos(x,y,z);
+            CollisionGetter level=region();BlockPos pos=new BlockPos(x,y,z);
             return level.getBlockState(pos).getCollisionShape(level,pos).isEmpty();
         }
         /** Room for the body: no collision, no fire or other burning block, no fluid. */
         private boolean open(int x,int y,int z){
-            BlockState state=currentContext.getBlockState(new BlockPos(x,y,z));
+            BlockState state=blockAt(new BlockPos(x,y,z));
             return passable(x,y,z)&&!isBurningBlock(state)&&state.getFluidState().isEmpty();
         }
     }
