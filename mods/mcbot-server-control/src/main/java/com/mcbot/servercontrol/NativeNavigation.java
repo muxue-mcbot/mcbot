@@ -318,9 +318,9 @@ final class NativeNavigation {
         List<Vec3> points=new ArrayList<>();
         for(int i=0;i<path.getNodeCount();i++){Node node=path.getNode(i);points.add(new Vec3(node.x+0.5,node.y,node.z+0.5));}
         // The last node is a block centre; a nearby, allowed goal point (an item, a stand spot) is the final steer.
-        Vec3 last=points.getLast();
+        Vec3 last=points.get(points.size()-1);
         if(path.canReach()&&goal.test(destination)&&allowed.test(destination)&&last.subtract(destination).horizontalDistance()<=FINAL_APPROACH&&Math.abs(last.y-destination.y)<0.6)points.add(destination);
-        if(points.size()==1&&reached(feet,points.getFirst())&&!goal.test(feet)&&!path.canReach())throw error("NO_PATH","No loaded walkable route makes progress toward the destination");
+        if(points.size()==1&&reached(feet,points.get(0))&&!goal.test(feet)&&!path.canReach())throw error("NO_PATH","No loaded walkable route makes progress toward the destination");
         route=points;index=0;realignTo=null;ledgeNode=null;target=destination;lastPlan=now;lastProgress=now;progress=feet;routePoints=points.size();
     }
     /** The straight final step stays on solid floor: no hole under its middle or its end. */

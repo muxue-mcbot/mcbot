@@ -413,7 +413,7 @@ final class SurvivalActions {
         }
         JsonObject result=obj("interaction",interaction.id(),"consumedCount",verdict.consumed(),"gained",verdict.gained(),"selectedSlot",player.getInventory().selected);
         if(position!=null) result.add("block",blockSnapshot(position));
-        if(!after.getAsJsonObject("summary").isEmpty()) result.add("summary",after.getAsJsonObject("summary"));
+        if(after.getAsJsonObject("summary").size()!=0) result.add("summary",after.getAsJsonObject("summary"));
         if(verdict.code()!=null) result.addProperty("code",verdict.code());
         // A failed receipt proved nothing changed, so it carries no inventory (which the model view reads as "changed").
         if(verdict.status().equals("unknown")) { result.add("unexpected",verdict.unexpected());result.add("inventory",inventory());result.add("before",before);result.add("after",after); }

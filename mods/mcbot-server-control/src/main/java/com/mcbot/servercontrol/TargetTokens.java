@@ -73,7 +73,7 @@ final class TargetTokens {
         Container storage=ModAdapters.storage(menu,player.getInventory());
         if(storage==null) throw error("STALE_TARGET","Opened menu storage source is unknown");
         if(target.parts().size()==1) {
-            if(!ModAdapters.storageOf(menu,storage,target.parts().getFirst().entity())) throw error("STALE_TARGET","Menu does not use the discovered block entity");
+            if(!ModAdapters.storageOf(menu,storage,target.parts().get(0).entity())) throw error("STALE_TARGET","Menu does not use the discovered block entity");
         } else if(!(storage instanceof CompoundContainer combined)||target.parts().stream().anyMatch(p->!(p.entity() instanceof Container c)||!combined.contains(c)))
             throw error("STALE_TARGET","Double chest menu does not use both discovered entities");
     }

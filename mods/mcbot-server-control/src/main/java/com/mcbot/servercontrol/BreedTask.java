@@ -15,6 +15,7 @@ import net.minecraft.world.entity.player.Inventory;
 import net.minecraft.world.inventory.ClickType;
 import net.minecraft.world.item.*;
 import net.minecraft.world.level.ClipContext;
+import net.minecraft.util.Mth;
 import net.minecraft.world.phys.*;
 import static com.mcbot.servercontrol.Protocol.*;
 import static com.mcbot.servercontrol.NativeWorkstation.*;
@@ -81,7 +82,7 @@ final class BreedTask implements BodyTask {
         for(Animal a:all){if(a.isBaby())babies++;else if(a.isInLove())inLove++;else if(ready(a))ready++;else cooldown++;}
         JsonObject result=obj("animal",BuiltInRegistries.ENTITY_TYPE.getKey(type).toString(),"total",all.size(),"ready",ready,"babies",babies,"inLove",inLove,"cooldown",cooldown);
         if(!all.isEmpty()) {
-            Animal sample=all.getFirst();JsonArray foods=new JsonArray();Set<Item> seen=new HashSet<>();
+            Animal sample=all.get(0);JsonArray foods=new JsonArray();Set<Item> seen=new HashSet<>();
             for(int i=0;i<36;i++){ItemStack s=player.getInventory().getItem(i);if(edible(sample,s)&&seen.add(s.getItem()))foods.add(obj("item",id(s),"count",foodCount(sample,s.getItem())));}
             result.add("foodHeld",foods);
         }
@@ -96,7 +97,7 @@ final class BreedTask implements BodyTask {
         List<Animal> ready=all.stream().filter(BreedTask::ready).toList();
         if(all.isEmpty())throw error("NO_ANIMALS","No "+BuiltInRegistries.ENTITY_TYPE.getKey(type)+" within "+radius+" blocks");
         if(ready.size()<2){JsonObject s=survey();operation.finish("failed","NOT_READY: fewer than two can breed now (babies, cooldown or in love)",withChange(addCode(s,"NOT_READY")));return;}
-        Animal sample=ready.getFirst();
+        Animal sample=ready.get(0);
         for(int i=0;i<36&&using==null;i++){ItemStack s=player.getInventory().getItem(i);if(edible(sample,s)&&foodCount(sample,s.getItem())>=2)using=s.getItem();}
         if(using==null){JsonObject s=survey();operation.finish("failed","NO_FOOD: not two of the breeding food for "+BuiltInRegistries.ENTITY_TYPE.getKey(type),withChange(addCode(s,"NO_FOOD")));return;}
         int byFood=foodCount(sample,using)/2;
@@ -120,7 +121,7 @@ final class BreedTask implements BodyTask {
     /** Close enough to right-click (vanilla allows the interaction range plus one) and nothing solid in between. */
     private boolean inReach(Vec3 feet,Animal animal) {
         Vec3 eye=feet.add(0,player.getEyeHeight(),0);AABB box=animal.getBoundingBox();
-        Vec3 nearest=new Vec3(Math.clamp(eye.x,box.minX,box.maxX),Math.clamp(eye.y,box.minY,box.maxY),Math.clamp(eye.z,box.minZ,box.maxZ));
+        Vec3 nearest=new Vec3(Mth.clamp(eye.x,box.minX,box.maxX),Mth.clamp(eye.y,box.minY,box.maxY),Mth.clamp(eye.z,box.minZ,box.maxZ));
         if(eye.distanceTo(nearest)>player.entityInteractionRange()-0.3)return false;
         return player.serverLevel().clip(new ClipContext(eye,box.getCenter(),ClipContext.Block.COLLIDER,ClipContext.Fluid.NONE,player)).getType()==HitResult.Type.MISS;
     }

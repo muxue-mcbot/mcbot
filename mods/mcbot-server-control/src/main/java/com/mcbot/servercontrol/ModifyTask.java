@@ -89,13 +89,13 @@ final class ModifyTask extends StationJob {
         if(transfer(player,menu,from,subjectSlot,1)!=1){restore(menu);fail("RECIPE_REFUSED","The station did not accept "+ItemDescriptions.key(subjectBefore),obj());return;}
         boolean ok=true;
         switch(kind) {
-            case ENCHANT -> ok=putPlain(menu,catalysts.getFirst(),Items.LAPIS_LAZULI,3)>0;
-            case ANVIL -> { if(withFrom>=0)ok=transfer(player,menu,withFrom,catalysts.getFirst(),player.getInventory().getItem(withFrom).getCount())>0;else if(withItem!=null)ok=putPlain(menu,catalysts.getFirst(),withItem,64)>0;
+            case ENCHANT -> ok=putPlain(menu,catalysts.get(0),Items.LAPIS_LAZULI,3)>0;
+            case ANVIL -> { if(withFrom>=0)ok=transfer(player,menu,withFrom,catalysts.get(0),player.getInventory().getItem(withFrom).getCount())>0;else if(withItem!=null)ok=putPlain(menu,catalysts.get(0),withItem,64)>0;
                             if(ok&&rename!=null)NativeWorkstation.rename(player,rename); }
-            case GRIND -> { if(withFrom>=0)ok=transfer(player,menu,withFrom,catalysts.getFirst(),1)==1; }
+            case GRIND -> { if(withFrom>=0)ok=transfer(player,menu,withFrom,catalysts.get(0),1)==1; }
             case SMITH -> ok=putPlain(menu,catalysts.get(0),template,1)==1&&putPlain(menu,catalysts.get(1),addition,1)==1;
             case LOOM -> ok=putPlain(menu,catalysts.get(0),dye,1)==1&&(patternItem==null||putPlain(menu,catalysts.get(1),patternItem,1)==1);
-            case CARTOGRAPHY -> ok=putPlain(menu,catalysts.getFirst(),withItem,1)==1;
+            case CARTOGRAPHY -> ok=putPlain(menu,catalysts.get(0),withItem,1)==1;
         }
         if(!ok){restore(menu);fail("RECIPE_REFUSED","The station did not take the inputs",obj());return;}
         WorkstationAdapter adapter=station.adapter();
@@ -146,7 +146,7 @@ final class ModifyTask extends StationJob {
         if(chosen==null){restore(menu);fail("NO_SUCH_OPTION","Offer "+option+" is not available for this item here",result);return;}
         if(option>maxLevels){restore(menu);fail("OVER_LIMIT","Offer "+option+" spends "+option+" levels, more than maxLevels "+maxLevels,result);return;}
         if(player.experienceLevel<chosen.levels()){restore(menu);fail("NOT_ENOUGH_LEVELS","Offer "+option+" needs level "+chosen.levels()+"; the body has "+player.experienceLevel,result);return;}
-        int lapis=menu.getSlot(layout.slots(Port.CATALYST).getFirst()).getItem().getCount();
+        int lapis=menu.getSlot(layout.slots(Port.CATALYST).get(0)).getItem().getCount();
         if(lapis<option){restore(menu);fail("MISSING_MATERIALS","Offer "+option+" needs "+option+" lapis; "+lapis+" went in",result);return;}
         String beforeKey=ItemDescriptions.key(menu.getSlot(subjectSlot).getItem());
         button(player,menu,option-1);

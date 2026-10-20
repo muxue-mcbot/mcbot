@@ -46,7 +46,7 @@ public record StationLayout(Map<Port, List<Integer>> slots, int gridWidth, int g
     /** The single slot of a port, or -1 when it has none. */
     public int slot(Port port) {
         List<Integer> list = slots(port);
-        return list.isEmpty() ? -1 : list.getFirst();
+        return list.isEmpty() ? -1 : list.get(0);
     }
 
     public boolean isGrid() { return gridWidth * gridHeight > 0; }

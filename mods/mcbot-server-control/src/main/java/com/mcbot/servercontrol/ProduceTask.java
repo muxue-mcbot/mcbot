@@ -82,7 +82,7 @@ final class ProduceTask extends StationJob {
         Inventory inventory=player.getInventory();
         for(StationRecipe r:recipes){int need=(count+r.result().getCount()-1)/r.result().getCount();if(need<=64&&NativeWorkstation.allocate(r,inventory,need)!=null){recipe=r;inputs=need;break;}}
         if(recipe==null) {
-            StationRecipe best=recipes.getFirst();int need=(count+best.result().getCount()-1)/best.result().getCount();
+            StationRecipe best=recipes.get(0);int need=(count+best.result().getCount()-1)/best.result().getCount();
             failureDetail=obj("recipe",best.id().toString(),"missing",missing(best,inventory,need));
             throw error("MISSING_MATERIALS","Not enough input for "+count+" "+id(wanted)+" at a stonecutter");
         }
@@ -104,7 +104,7 @@ final class ProduceTask extends StationJob {
         Inventory inventory=player.getInventory();
         var plan=NativeWorkstation.allocate(recipe,inventory,inputs);
         if(plan==null){fail("MISSING_MATERIALS","The input is no longer in the inventory",obj());return;}
-        for(var take:plan.getFirst().entrySet())transfer(player,menu,take.getKey(),in,take.getValue());
+        for(var take:plan.get(0).entrySet())transfer(player,menu,take.getKey(),in,take.getValue());
         int button=-1;
         for(StationOption option:safely(()->station.adapter().options(player,menu),List.<StationOption>of()))if(option.id().equals(recipe.id().toString()))button=option.button();
         if(button<0){takeBack(menu,List.of(in));fail("RECIPE_REFUSED","The stonecutter did not offer "+recipe.id(),obj("recipe",recipe.id().toString()));return;}
@@ -193,7 +193,7 @@ final class ProduceTask extends StationJob {
             stations.remove(at);stations.addFirst(at);
             startBottle=bottle;count=n;continuing=true;brewingNow=!reagentIn.isEmpty();
             stages=new ArrayList<>(path);
-            if(brewingNow){stages.addFirst(new Stage(reagentIn.getItem(),from));firstInStand=true;}
+            if(brewingNow){stages.add(0,new Stage(reagentIn.getItem(),from));firstInStand=true;}
             return;
         }
         List<Stage> best=null;ItemStack bestStart=null;
@@ -371,7 +371,7 @@ final class ProduceTask extends StationJob {
             StationProgress progress=safely(()->at.adapter().progress(player.serverLevel(),at.pos(),state(at.pos())),null);
             if(progress!=null&&(progress.results().stream().anyMatch(s->s.is(wanted))||progress.working()&&making(progress.inputs(),cookRecipesAt(at.adapter(),state(at.pos()))))){stations.remove(at);stations.addFirst(at);collectOnly=true;return true;}
         }
-        StationRecipe best=recipes.getFirst();
+        StationRecipe best=recipes.get(0);
         for(StationRecipe r:recipes)if(cookMissing(r).size()<cookMissing(best).size())best=r;
         stations.clear();
         failureDetail=obj("recipe",best.id().toString(),"missing",cookMissing(best));

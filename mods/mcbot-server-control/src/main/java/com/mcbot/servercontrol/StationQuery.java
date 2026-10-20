@@ -60,7 +60,7 @@ final class StationQuery {
             for(var holder:player.getServer().getRecipeManager().getAllRecipesFor(entry.getValue())) {
                 AbstractCookingRecipe recipe=holder.value();
                 if(!recipe.getResultItem(player.registryAccess()).is(wanted)||recipe.getIngredients().isEmpty()||!seen.add(entry.getKey()+holder.id()))continue;
-                ways.add(obj("tool","smelt-item","station",entry.getKey(),"recipe",holder.id().toString(),"input",options(recipe.getIngredients().getFirst())));
+                ways.add(obj("tool","smelt-item","station",entry.getKey(),"recipe",holder.id().toString(),"input",options(recipe.getIngredients().get(0))));
                 if(seen.size()>6)break;
             }
         // Add-on stations with several inputs (a cooking pot): every input, the container each result is served into.
@@ -82,7 +82,7 @@ final class StationQuery {
         }
         for(StationRecipe r:VanillaWorkstations.STONECUTTING.producing(player,wanted)) {
             int need=(count+r.result().getCount()-1)/r.result().getCount();
-            JsonObject way=obj("tool","produce-item","station","minecraft:stonecutter","recipe",r.id().toString(),"input",options(r.cells().getFirst()),"perInput",r.result().getCount());
+            JsonObject way=obj("tool","produce-item","station","minecraft:stonecutter","recipe",r.id().toString(),"input",options(r.cells().get(0)),"perInput",r.result().getCount());
             JsonArray m=missing(r,inventory,need);if(m.size()>0)way.add("missing",m);
             ways.add(way);if(ways.size()>12)break;
         }

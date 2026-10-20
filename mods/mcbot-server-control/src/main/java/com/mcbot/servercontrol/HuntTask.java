@@ -117,7 +117,7 @@ final class HuntTask implements BodyTask {
         if(player.containerMenu!=player.inventoryMenu)throw error("BUSY","Close the current container first");
         if(candidates().isEmpty()&&pillarMode&&!candidates(false).isEmpty()){JsonObject s=survey();s.addProperty("code","UNSUPPORTED");operation.finish("failed","UNSUPPORTED: the pillar stand only works on ground melee mobs; "+BuiltInRegistries.ENTITY_TYPE.getKey(type)+" shoots, climbs, flies or teleports",s);return;}
         if(candidates().isEmpty()){JsonObject s=survey();s.addProperty("code","NO_TARGET");operation.finish("failed","NO_TARGET: no grown, unprotected "+BuiltInRegistries.ENTITY_TYPE.getKey(type)+" within "+radius+" blocks",s);return;}
-        if(pillarMode){String why=standRefusal(candidates().getFirst());if(why!=null){JsonObject s=survey();s.addProperty("code",why.substring(0,why.indexOf(':')));operation.finish("failed",why,s);return;}}
+        if(pillarMode){String why=standRefusal(candidates().get(0));if(why!=null){JsonObject s=survey();s.addProperty("code",why.substring(0,why.indexOf(':')));operation.finish("failed",why,s);return;}}
         armWeapon();
     }
     /** Before walking to a target: code and message when the stand cannot be built (too tall to stand over, or not enough blocks); null when it can. */
@@ -175,10 +175,10 @@ final class HuntTask implements BodyTask {
             List<LivingEntity> left=candidates();
             if(left.isEmpty()){end(killed.isEmpty()?"NO_TARGET":null);return;}
             if(pillarMode) {
-                String why=standRefusal(left.getFirst());
+                String why=standRefusal(left.get(0));
                 if(why!=null){note=why.substring(why.indexOf(':')+2);end(why.substring(0,why.indexOf(':')));return;}
             }
-            target=left.getFirst();walkStarted=now();
+            target=left.get(0);walkStarted=now();
         }
         LivingEntity chased=target;
         if(pillarMode){standTick(chased);return;}

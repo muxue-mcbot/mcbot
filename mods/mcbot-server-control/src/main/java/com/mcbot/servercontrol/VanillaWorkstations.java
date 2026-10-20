@@ -89,7 +89,7 @@ final class VanillaWorkstations {
                     @SuppressWarnings("unchecked") RecipeType<AbstractCookingRecipe> raw=(RecipeType<AbstractCookingRecipe>)type;
                     return player.getServer().getRecipeManager().getRecipeFor(raw,new SingleRecipeInput(input),player.level()).map(holder->{
                         AbstractCookingRecipe recipe=holder.value();
-                        Ingredient ingredient=recipe.getIngredients().isEmpty()?Ingredient.of(input.getItem()):recipe.getIngredients().getFirst();
+                        Ingredient ingredient=recipe.getIngredients().isEmpty()?Ingredient.of(input.getItem()):recipe.getIngredients().get(0);
                         return StationRecipe.processing(holder.id(),recipe.getResultItem(player.registryAccess()),ingredient,recipe.getCookingTime(),recipe.getExperience());
                     });
                 }

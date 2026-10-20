@@ -1,0 +1,27 @@
+// MC 1.20.1 / Forge 47.3.33 build of the core (docs/forge_1201_port.md): the shared sources of ../mcbot-server-control
+// plus its forge-1.20.1 version layer, compiled with Java 17. The 1.20.1 layer is not written yet, so this only compiles.
+plugins {
+    id 'java-library'
+    id 'net.neoforged.moddev.legacyforge' version '2.0.147'
+}
+def core = file('../mcbot-server-control')
+// One version for both builds: set-version.mjs edits only the core's gradle.properties.
+def coreProps = new Properties()
+new File(core, 'gradle.properties').withInputStream { coreProps.load(it) }
+version = coreProps.mod_version
+group = 'com.mcbot.servercontrol'
+base { archivesName = 'mcbot-server-control-forge1201' }
+java.toolchain.languageVersion = JavaLanguageVersion.of(17)
+repositories { mavenCentral() }
+legacyForge {
+    version = project.forge_version
+    mods { mcbot_server_control { sourceSet(sourceSets.main) } }
+}
+sourceSets.main.java.srcDirs = [new File(core, 'src/main/java'), new File(core, 'src/forge-1.20.1/java')]
+tasks.withType(JavaCompile).configureEach {
+    options.encoding = 'UTF-8'
+    options.compilerArgs += ['-Xmaxerrs', '100000', '-Xmaxwarns', '0']
+    // English messages, so runtime/forge1201/javac-groups.mjs can sort the errors.
+    options.fork = true
+    options.forkOptions.jvmArgs += ['-Duser.language=en', '-Duser.country=US']
+}

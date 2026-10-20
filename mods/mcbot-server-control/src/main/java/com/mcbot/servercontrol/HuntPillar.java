@@ -112,12 +112,12 @@ final class HuntPillar {
                 if(!ok)return give();
                 landBy=now()+NativePillar.TIMEOUT_MS;
             }
-            if(player.onGround()&&player.blockPosition().getY()==digging.pos().getY()) {placed.removeLast();digging=null;}
+            if(player.onGround()&&player.blockPosition().getY()==digging.pos().getY()) {placed.remove(placed.size()-1);digging=null;}
             else if(now()>landBy)return give();
             else return false;
         }
         if(placed.isEmpty())return true;
-        Step top=placed.getLast();
+        Step top=placed.get(placed.size()-1);
         BlockState state=player.serverLevel().getBlockState(top.pos());
         if(!player.onGround()||!player.blockPosition().equals(top.pos().above())||!state.is(top.block()))return give();
         equipFor(state);

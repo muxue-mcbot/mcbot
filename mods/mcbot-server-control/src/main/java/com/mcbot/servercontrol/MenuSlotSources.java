@@ -36,7 +36,7 @@ final class MenuSlotSources {
     }
     static Object verifiedBacking(List<BackingSlot> slots,Object inventory,int count) {
         if(count<=0||slots.size()<count) return null;
-        BackingSlot first=slots.getFirst();
+        BackingSlot first=slots.get(0);
         if(first.container()==inventory||first.size()<count) return null;
         for(int i=0;i<count;i++)
             if(slots.get(i).container()!=first.container()||slots.get(i).nativeIndex()!=i||slots.get(i).size()!=first.size()) return null;

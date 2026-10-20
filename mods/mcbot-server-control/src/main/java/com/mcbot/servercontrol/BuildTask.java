@@ -385,7 +385,7 @@ final class BuildTask implements BodyTask {
         scaffold.removeIf(p->!level().getBlockState(p).is(((BlockItem)scaffoldItem).getBlock()));
         if(scaffold.isEmpty()){mode=Mode.COLLECT;collectUntil=now()+8000;return;}
         if(!player.onGround())return;
-        BlockPos top=scaffold.getLast();
+        BlockPos top=scaffold.get(scaffold.size()-1);
         if(!player.blockPosition().below().equals(top)){abandonScaffold();return;} // pushed off
         BlockHitResult hit=hitFrom(player.position(),top,Direction.UP);
         if(hit==null){abandonScaffold();return;}
@@ -450,10 +450,10 @@ final class BuildTask implements BodyTask {
     private boolean returnToColumn() {
         leftColumns.removeIf(l->{l.cells().removeIf(p->!level().getBlockState(p).is(((BlockItem)l.item()).getBlock()));return l.cells().isEmpty();});
         if(leftColumns.isEmpty())return false;
-        Left l=leftColumns.getFirst();BlockPos stand=l.cells().getLast().above();
+        Left l=leftColumns.get(0);BlockPos stand=l.cells().get(l.cells().size()-1).above();
         if(player.onGround()&&player.blockPosition().equals(stand)) {
-            stopWalking();player.stopInput();returning=null;leftColumns.removeFirst();
-            scaffold.clear();scaffold.addAll(l.cells());scaffoldItem=l.item();column=l.cells().getFirst();
+            stopWalking();player.stopInput();returning=null;leftColumns.remove(0);
+            scaffold.clear();scaffold.addAll(l.cells());scaffoldItem=l.item();column=l.cells().get(0);
             note("back on a scaffold: down from "+scaffold.size());mode=Mode.DESCENDING;return true;
         }
         if(!stand.equals(returning))returning=stand; // the same object every tick: walkTo tells a new walk by identity
@@ -695,7 +695,7 @@ final class BuildTask implements BodyTask {
         // Cannot get back onto a column stepped off from: dig it from wherever it can be reached instead.
         if(work instanceof BlockPos p&&p.equals(returning)) {
             stopWalking();note("give up the way back to a scaffold: "+why);returning=null;
-            Left l=leftColumns.removeFirst();for(BlockPos c:l.cells()){helperDigs.add(c);columnDigs.add(c);if(!digs.contains(c))digs.add(c);}
+            Left l=leftColumns.remove(0);for(BlockPos c:l.cells()){helperDigs.add(c);columnDigs.add(c);if(!digs.contains(c))digs.add(c);}
             return;
         }
         // Up on a floor stepped onto from a column, and this cannot be reached from up here: back down that column first

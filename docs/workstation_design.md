@@ -94,7 +94,7 @@
 3. **标签用 `c:` 命名空间**：`c:ores`、`c:stones` 在 NeoForge 和 Fabric 上是同一个标签，代码里直接用 `TagKey.create`，不用 NeoForge 的 `Tags` 类。
 4. **映射**：NeoForge 用 Mojang 官方名＋Parchment；Fabric Loom 也可以用 `officialMojangMappings()`，所以同一份核心源码两边都能编译。
 5. **以后的工程结构**：真正开始做 Fabric 时，拆成 `common`（核心＋公开 API）、`neoforge`、`fabric` 三个子项目（MultiLoader 模板的做法，不引入 Architectury 运行时依赖）。事件桥（tick、聊天、拾取、受伤、交互）要在两边各写一份：Fabric API 没有的事件（比如拾取前、即将受伤）要用 Mixin。现在不拆，只守住第 1 条，拆的时候就是搬文件。
-6. **游戏版本比加载器更难**：1.21.2 起配方和燃料的接口都改了（配方展示、`FuelValues`、`RecipeInput`），所以配方读取放在 `RecipeSource` 后面，换版本时只重写这几个实现。不追求一份代码同时编译多个游戏版本。
+6. **游戏版本比加载器更难**：1.21.2 起配方和燃料的接口都改了（配方展示、`FuelValues`、`RecipeInput`），所以配方读取放在 `RecipeSource` 后面，换版本时只重写这几个实现。2026-10-21 起要同时支持 1.20.1 Forge（用户要支持的整合包在这个版本上），用户选了“共用代码加版本层”：共用代码放在 `src/main/java`，按 Java 17 写，不碰加载器；每个“版本加加载器”的组合一个目录，放入口、事件桥和版本垫片。不用预处理器在一份源码里写条件编译。做法见 [1.20.1 Forge 移植评估](forge_1201_port.md)。
 7. **公开 API 只用原版类型和 JDK 类型**：附属模组的适配逻辑因此能在两个加载器之间复用大部分；但被适配的模组在两个加载器上往往是不同的代码（比如农夫乐事的 Fabric 移植版类名不同），适配器本身仍按“模组＋加载器＋版本”锁定。`McbotApi.versionsMatch` 改为核对当前加载器自己的版本。
 
 ## 迁移时要防的坑

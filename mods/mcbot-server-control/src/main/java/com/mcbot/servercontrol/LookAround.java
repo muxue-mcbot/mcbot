@@ -147,9 +147,9 @@ final class LookAround {
         }
         List<Map.Entry<String,List<Entity>>> kinds=new ArrayList<>(living.entrySet());
         for(var kind:kinds)kind.getValue().sort(Comparator.comparingDouble(e->e.distanceTo(body)));
-        kinds.sort(Comparator.comparing((Map.Entry<String,List<Entity>> k)->!(k.getValue().getFirst() instanceof Enemy)).thenComparingDouble(k->k.getValue().getFirst().distanceTo(body)));
+        kinds.sort(Comparator.comparing((Map.Entry<String,List<Entity>> k)->!(k.getValue().get(0) instanceof Enemy)).thenComparingDouble(k->k.getValue().get(0).distanceTo(body)));
         for(var kind:kinds.subList(0,Math.min(kinds.size(),MAX_CREATURES))) {
-            Entity first=kind.getValue().getFirst();JsonObject nearest=where(body,first.position());nearest.addProperty("visible",body.hasLineOfSight(first));
+            Entity first=kind.getValue().get(0);JsonObject nearest=where(body,first.position());nearest.addProperty("visible",body.hasLineOfSight(first));
             JsonObject creature=obj("type",kind.getKey(),"count",kind.getValue().size(),"hostile",first instanceof Enemy,"nearest",nearest);
             // The nearest one's gear, shown like a player's (obj copies, so the copy inside the entry gets it).
             if(first instanceof LivingEntity alive)ItemDescriptions.collectEquipment(alive,creature.getAsJsonObject("nearest"),first.distanceTo(body),equipped);
@@ -158,9 +158,9 @@ final class LookAround {
         EquipmentView.attach(equipped);
         List<Map.Entry<String,List<Entity>>> stacks=new ArrayList<>(dropped.entrySet());
         for(var stack:stacks)stack.getValue().sort(Comparator.comparingDouble(e->e.distanceTo(body)));
-        stacks.sort(Comparator.comparingDouble(s->s.getValue().getFirst().distanceTo(body)));
+        stacks.sort(Comparator.comparingDouble(s->s.getValue().get(0).distanceTo(body)));
         for(var stack:stacks.subList(0,Math.min(stacks.size(),MAX_ITEMS)))
-            items.add(obj("item",stack.getKey(),"count",stacked.get(stack.getKey()),"nearest",where(body,stack.getValue().getFirst().position())));
+            items.add(obj("item",stack.getKey(),"count",stacked.get(stack.getKey()),"nearest",where(body,stack.getValue().get(0).position())));
 
         BlockPos eye=BlockPos.containing(body.getEyePosition());
         String biome=level.getBiome(origin).unwrapKey().map(key->key.location().toString()).orElse("unknown");

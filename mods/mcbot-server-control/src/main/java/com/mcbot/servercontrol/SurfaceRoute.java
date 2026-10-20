@@ -9,6 +9,7 @@ import net.minecraft.world.level.block.state.BlockState;
 import net.minecraft.world.level.levelgen.Heightmap;
 import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.Collections;
 import java.util.List;
 import java.util.PriorityQueue;
 
@@ -115,7 +116,7 @@ final class SurfaceRoute {
         if(best==start)return List.of();
         List<Cell> way=new ArrayList<>();
         for(int cell=best;cell!=-1;cell=previous[cell])way.add(new Cell(originX+cell%size,originZ+cell/size,height[cell],kind[cell]));
-        return way.reversed();
+        Collections.reverse(way);return way;
     }
     private double distance(int cell,double targetX,double targetZ){
         return Math.hypot(originX+cell%size+0.5-targetX,originZ+cell/size+0.5-targetZ);

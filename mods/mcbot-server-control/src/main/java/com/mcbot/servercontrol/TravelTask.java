@@ -142,7 +142,7 @@ final class TravelTask implements BodyTask {
         for(long cell:avoid){int i=grid.index((int)(cell>>32),(int)cell);if(i>=0&&i!=here)grid.kind[i]=SurfaceRoute.BLOCKED;}
         List<SurfaceRoute.Cell> way=grid.plan(fx,fz,x,z);
         if(way.size()<2)return false;
-        SurfaceRoute.Cell end=way.getLast();
+        SurfaceRoute.Cell end=way.get(way.size()-1);
         shortOf=null;
         if(end.x()!=(int)Math.floor(x)||end.z()!=(int)Math.floor(z)) {
             shortOf=horizontal(spot(end));
