@@ -12,9 +12,8 @@ import net.minecraft.server.level.*;
 import net.minecraft.server.network.CommonListenerCookie;
 import net.minecraft.world.entity.Entity;
 import net.minecraft.world.entity.item.ItemEntity;
-import net.neoforged.neoforge.event.entity.player.ItemEntityPickupEvent;
-import net.neoforged.neoforge.event.entity.living.LivingEntityUseItemEvent;
-import net.neoforged.bus.api.EventPriority;
+import net.minecraft.world.damagesource.DamageSource;
+import net.minecraft.world.entity.LivingEntity;
 import net.minecraft.world.InteractionHand;
 import net.minecraft.world.entity.player.Player;
 import net.minecraft.world.item.ItemStack;
@@ -22,11 +21,8 @@ import net.minecraft.world.level.GameType;
 import net.minecraft.world.level.block.Blocks;
 import net.minecraft.world.level.storage.LevelResource;
 import net.minecraft.world.phys.*;
-import net.neoforged.neoforge.common.NeoForge;
-import net.neoforged.neoforge.event.ServerChatEvent;
 import java.nio.file.Files;
 import java.util.*;
-import java.util.function.Consumer;
 import static com.mcbot.servercontrol.Protocol.*;
 
 final class ServerController implements ControlSession.Game {
@@ -60,22 +56,12 @@ final class ServerController implements ControlSession.Game {
     private TaskInterrupt window;
     private final SubjectRefs subjectRefs=new SubjectRefs();
     private int lastDriveTick=Integer.MIN_VALUE;
-    private final Consumer<net.neoforged.neoforge.event.entity.living.LivingDamageEvent.Post> damageListener=this::receiveDamage;
-    private final Consumer<net.neoforged.neoforge.event.entity.player.AttackEntityEvent> attackGuard=SurvivalActions::guardNativeAttack;
-    private final Consumer<net.neoforged.neoforge.event.entity.living.LivingIncomingDamageEvent> incomingDamageGuard=SurvivalActions::guardNativeIncomingDamage;
-    private final Consumer<net.neoforged.neoforge.event.entity.player.SweepAttackEvent> sweepGuard=SurvivalActions::guardNativeSweep;
-    private final Consumer<net.neoforged.neoforge.event.entity.living.LivingIncomingDamageEvent> friendlyFireGuard=this::guardFriendlyFire;
-    private final Consumer<net.neoforged.neoforge.event.entity.EntityJoinLevelEvent> projectileMark=this::markBodyProjectile;
     private final IdleGaze gaze=new IdleGaze();
     private final BodyEmotes emotes=new BodyEmotes();
     private ServerPlayer speaker;
     private long spokeAt,gazeHold;
     private final ArrayDeque<JsonObject> chat=new ArrayDeque<>();
     private long chatSequence;
-    private ServerChatEvent outgoingChatEvent;
-    private final Consumer<LivingEntityUseItemEvent.Finish> foodFinishListener=this::receiveFoodFinish;
-    private final Consumer<net.neoforged.neoforge.event.level.BlockEvent.FarmlandTrampleEvent> trampleGuard=this::guardFarmland;
-    private final Consumer<net.neoforged.neoforge.event.entity.living.LivingDeathEvent> deathListener=this::recordDeath;
     /** How and where the body last died (vanilla's death message), shown in hello until the next death; null before any. */
     private JsonObject lastDeath;
     /** Marks the items the body dropped when it died, so a recovery after respawn picks up only those (protocol 陪伴姿态, 死亡掉落). */
@@ -88,38 +74,32 @@ final class ServerController implements ControlSession.Game {
     static final int OBSERVE_RANGE=32;
     /** The item entities of the last death's drops; how many are still there is read when hello is asked. */
     private final List<UUID> deathDrops=new ArrayList<>();
-    private final Consumer<net.neoforged.neoforge.event.entity.living.LivingDropsEvent> dropsListener=this::recordDrops;
+    /**
+     * The loader's event bridge (McbotServerControl in each version folder) calls the event methods below while this
+     * controller is the current one; it registers the listeners, keeps their priorities and cancels when a guard says so.
+     */
     ServerController(MinecraftServer server,ServerConfig config) {
         this.server=server; this.config=config;
         session=new ControlSession(this,()->System.nanoTime()/1_000_000,config.worldId(),config.username());
         targets=new TargetTokens(session);
         resources=new ResourceTargets(session);
         validationProtection=new ValidationProtection(config.uuid());
-        NeoForge.EVENT_BUS.addListener(EventPriority.LOWEST,foodFinishListener);
-        NeoForge.EVENT_BUS.addListener(EventPriority.LOWEST,damageListener);
-        NeoForge.EVENT_BUS.addListener(EventPriority.LOWEST,true,attackGuard);
-        NeoForge.EVENT_BUS.addListener(EventPriority.LOWEST,true,incomingDamageGuard);
-        NeoForge.EVENT_BUS.addListener(EventPriority.LOWEST,true,sweepGuard);
-        NeoForge.EVENT_BUS.addListener(EventPriority.HIGHEST,trampleGuard);
-        NeoForge.EVENT_BUS.addListener(EventPriority.HIGHEST,friendlyFireGuard);
-        NeoForge.EVENT_BUS.addListener(EventPriority.HIGHEST,projectileMark);
-        NeoForge.EVENT_BUS.addListener(EventPriority.LOWEST,deathListener);
-        NeoForge.EVENT_BUS.addListener(EventPriority.LOWEST,dropsListener);
     }
-    /** A death that went through (not cancelled): the message vanilla is about to print, the place the drops fall, the time. */
-    private void recordDeath(net.neoforged.neoforge.event.entity.living.LivingDeathEvent event) {
-        if(player==null||event.getEntity()!=player)return;
-        String message;try{message=player.getCombatTracker().getDeathMessage().getString();}catch(RuntimeException ignored){message=event.getSource().getMsgId();}
+    ValidationProtection validationProtection() { return validationProtection; }
+    /** A death that went through (not cancelled; lowest priority): the message vanilla is about to print, the place the drops fall, the time. */
+    void recordDeath(LivingEntity entity,DamageSource source) {
+        if(player==null||entity!=player)return;
+        String message;try{message=player.getCombatTracker().getDeathMessage().getString();}catch(RuntimeException ignored){message=source.getMsgId();}
         lastDeath=obj("message",message,"dimension",player.serverLevel().dimension().location().toString(),"position",position(player.position()),"at",System.currentTimeMillis());
         // Nothing dropped until the drops event says so: keepInventory, an empty inventory, or a mod that took the drops (a grave) leave it at 0.
         deathDrops.clear();lastDeath.add("drops",obj("count",0));
     }
-    /** The drops of that death (vanilla fires this after the death event, before the items enter the world): tag and count them. */
-    private void recordDrops(net.neoforged.neoforge.event.entity.living.LivingDropsEvent event) {
-        if(player==null||event.getEntity()!=player||lastDeath==null)return;
+    /** The drops of that death (vanilla fires this after the death event, before the items enter the world; lowest priority): tag and count them. */
+    void recordDrops(LivingEntity entity,Collection<ItemEntity> drops) {
+        if(player==null||entity!=player||lastDeath==null)return;
         deathDrops.clear();
         Map<String,Integer> kinds=new LinkedHashMap<>();
-        for(ItemEntity item:event.getDrops()) {
+        for(ItemEntity item:drops) {
             item.addTag(DEATH_DROP_TAG);deathDrops.add(item.getUUID());
             kinds.merge(BuiltInRegistries.ITEM.getKey(item.getItem().getItem()).toString(),item.getItem().getCount(),Integer::sum);
         }
@@ -142,10 +122,12 @@ final class ServerController implements ControlSession.Game {
     }
     /** The body never tramples farmland: a companion walking the player's field must not turn it back to dirt. */
     /** Whatever the body does (a swing, an arrow, a guard fight), it never hurts a player, a pet, a villager or anything named. */
-    private void guardFriendlyFire(net.neoforged.neoforge.event.entity.living.LivingIncomingDamageEvent event){if(GuardCombat.blocksFriendlyFire(player!=null&&event.getSource().getEntity()==player,event.getSource().getDirectEntity()!=null&&event.getSource().getDirectEntity().getTags().contains(GuardCombat.BODY_PROJECTILE_TAG),event.getEntity()==player,GuardCombat.protectedFromBody(event.getEntity())))event.setCanceled(true);}
-    /** An arrow the body loosed keeps its mark after the body is gone (or its owner reference is), so the guard still knows whose it is. */
-    private void markBodyProjectile(net.neoforged.neoforge.event.entity.EntityJoinLevelEvent event){if(player!=null&&!event.getLevel().isClientSide()&&event.getEntity() instanceof net.minecraft.world.entity.projectile.Projectile projectile&&projectile.getOwner()==player)projectile.addTag(GuardCombat.BODY_PROJECTILE_TAG);}
-    private void guardFarmland(net.neoforged.neoforge.event.level.BlockEvent.FarmlandTrampleEvent event){if(player!=null&&event.getEntity()==player)event.setCanceled(true);}
+    /** Damage about to be dealt (highest priority); true cancels it. */
+    boolean refusesFriendlyFire(DamageSource source,LivingEntity target){return GuardCombat.blocksFriendlyFire(player!=null&&source.getEntity()==player,source.getDirectEntity()!=null&&source.getDirectEntity().getTags().contains(GuardCombat.BODY_PROJECTILE_TAG),target==player,GuardCombat.protectedFromBody(target));}
+    /** An arrow the body loosed keeps its mark after the body is gone (or its owner reference is), so the guard still knows whose it is. Highest priority, on joining a server level. */
+    void markBodyProjectile(Entity entity){if(player!=null&&entity instanceof net.minecraft.world.entity.projectile.Projectile projectile&&projectile.getOwner()==player)projectile.addTag(GuardCombat.BODY_PROJECTILE_TAG);}
+    /** Farmland about to be trampled (highest priority); true cancels it. */
+    boolean refusesTrample(Entity entity){return player!=null&&entity==player;}
     JsonObject call(String method,JsonObject params) {
         reconcile();
         if(Set.of("claim","respawn","act").contains(method))HostingRules.requireRunnable(host());
@@ -458,8 +440,9 @@ final class ServerController implements ControlSession.Game {
         postureDrove=drove;
         return drove;
     }
-    private void receiveFoodFinish(LivingEntityUseItemEvent.Finish event) {
-        if(player==event.getEntity()&&survival!=null)survival.receiveFoodFinish(event.getHand()==InteractionHand.MAIN_HAND,event.getItem(),event.getResultStack());
+    /** An entity finished using an item (eating, drinking; lowest priority): the stack it used and what it holds now. */
+    void receiveFoodFinish(LivingEntity entity,InteractionHand hand,ItemStack item,ItemStack result) {
+        if(player==entity&&survival!=null)survival.receiveFoodFinish(hand==InteractionHand.MAIN_HAND,item,result);
     }
     private JsonObject groundItems() {
         List<ItemEntity> items=player.serverLevel().getEntitiesOfClass(ItemEntity.class,player.getBoundingBox().inflate(8),e->e.isAlive()&&!e.isRemoved()&&e.distanceToSqr(player)<=64&&!e.getItem().isEmpty());
@@ -479,17 +462,18 @@ final class ServerController implements ControlSession.Game {
         return obj("entityId",entityId,"position",position,"stack",stack,"visibility",visibility,
             "visible",visibility.equals("unknown")?null:visibility.equals("visible"),"onGround",onGround);
     }
-    private ItemEntityPickupEvent.Pre pendingPre;
+    private Object pendingPre;
     private ItemStack pendingPreStack;
     private Map<String,Map<String,Integer>> pendingPreStored;
     /**
      * Another mod (e.g. a backpack pickup upgrade) may move the drop into storage during Pre and cancel the vanilla pickup,
      * so no Post event fires. That counts as picked up only when an installed {@link com.mcbot.servercontrol.api.PickupSink}
      * accounts for exactly the absorbed items; otherwise the ledger gets an explicit gap.
+     * The bridge calls this twice per pickup-before event, with the event itself as the token: first at highest priority,
+     * then at lowest with whether the vanilla pickup has been stopped by then.
      */
-    void receivePickupPre(ItemEntityPickupEvent.Pre event,boolean first) {
-        if(player==null||survival==null||event.getPlayer()!=player)return;
-        ItemEntity entity=event.getItemEntity();
+    void receivePickupPre(Player picker,ItemEntity entity,Object event,boolean first,boolean vanillaPickupStopped) {
+        if(player==null||survival==null||picker!=player)return;
         if(first) {
             pendingPre=event;pendingPreStack=entity.getItem().copy();
             pendingPreStored=ModAdapters.pickupSinks().isEmpty()?Map.of():ModAdapters.stored(player);
@@ -499,7 +483,7 @@ final class ServerController implements ControlSession.Game {
         ItemStack before=pendingPreStack;Map<String,Map<String,Integer>> storedBefore=pendingPreStored;
         pendingPre=null;pendingPreStack=null;pendingPreStored=null;
         ItemStack now=entity.getItem();
-        if(event.canPickup()!=net.neoforged.neoforge.common.util.TriState.FALSE||before.isEmpty()||now.getCount()>=before.getCount())return;
+        if(!vanillaPickupStopped||before.isEmpty()||now.getCount()>=before.getCount())return;
         String sink;JsonObject original=null,portion=null;int count=0;
         try {
             original=survival.stackValue(before);count=PickupLedger.pickedUpCount(original,survival.stackValue(now));
@@ -516,17 +500,17 @@ final class ServerController implements ControlSession.Game {
         PickupItem pickup=pickup();
         if(pickup!=null)pickup.picked(entity,true,portion,count,sink);
     }
-    void receivePickup(ItemEntityPickupEvent.Post event) {
+    /** A pickup that went through (lowest priority): who picked it up, the drop's stack before and what is left on the ground. */
+    void receivePickup(Player picker,ItemEntity entity,ItemStack originalStack,ItemStack currentStack) {
         if(player==null||survival==null)return;
-        ItemEntity entity=event.getItemEntity();
         PickupItem pickup=pickup();
-        if(event.getPlayer()!=player&&(pickup==null||!pickup.targets(entity)))return;
+        if(picker!=player&&(pickup==null||!pickup.targets(entity)))return;
         try {
-            JsonObject original=survival.stackValue(event.getOriginalStack()),remaining=survival.stackValue(event.getCurrentStack());
+            JsonObject original=survival.stackValue(originalStack),remaining=survival.stackValue(currentStack);
             int count=PickupLedger.pickedUpCount(original,remaining);JsonObject portion=original.deepCopy();portion.addProperty("count",count);
-            if(event.getPlayer()==player)pickups.record(entity.getUUID().toString(),position(entity.position()),original,remaining,session.sessionId(),session.generation(),player.serverLevel().dimension().location().toString(),null,thrownBy(entity));
-            if(pickup!=null)pickup.picked(entity,event.getPlayer()==player,portion,count,null);
-        }catch(RuntimeException unknown){if(event.getPlayer()==player)pickups.unknown();if(pickup!=null)pickup.fail("PICKUP_UNKNOWN","Native pickup stack could not be attributed completely");}
+            if(picker==player)pickups.record(entity.getUUID().toString(),position(entity.position()),original,remaining,session.sessionId(),session.generation(),player.serverLevel().dimension().location().toString(),null,thrownBy(entity));
+            if(pickup!=null)pickup.picked(entity,picker==player,portion,count,null);
+        }catch(RuntimeException unknown){if(picker==player)pickups.unknown();if(pickup!=null)pickup.fail("PICKUP_UNKNOWN","Native pickup stack could not be attributed completely");}
     }
     /** The player who threw this item, for the receipt (gift-receipts); a failed lookup only loses the name, never the receipt. */
     private String thrownBy(ItemEntity entity) {
@@ -541,16 +525,18 @@ final class ServerController implements ControlSession.Game {
     /** Gray italic host line to every player; the session already checked length, characters and rate. */
     @Override public void notice(String text) { server.getPlayerList().broadcastSystemMessage(Component.literal(text).withStyle(ChatFormatting.GRAY,ChatFormatting.ITALIC),false); }
     @Override public long chatCursor() { return chatSequence; }
-    void receiveChat(ServerChatEvent event) {
-        if(event!=outgoingChatEvent&&!event.isCanceled()) recordChat(event.getUsername(),event.getMessage().getString());
+    /** Someone else's chat line that went through (lowest priority); the bridge leaves out the body's own send-chat event. */
+    void receiveChat(String username,String message) {
+        recordChat(username,message);
     }
     private void recordChat(String username,String message) {
         chat.addLast(obj("seq",++chatSequence,"time",System.currentTimeMillis(),"username",username,"message",message));
         while(chat.size()>100) chat.removeFirst();
         if(!username.equals(config.username())){speaker=server.getPlayerList().getPlayerByName(username);spokeAt=now();if(posture!=null)posture.holdStroll();}
     }
-    private void receiveDamage(net.neoforged.neoforge.event.entity.living.LivingDamageEvent.Post event){
-        if(survival!=null)survival.receiveDamage(event);
+    /** Damage that went through, after armour and every mod (lowest priority). */
+    void receiveDamage(DamageSource source,LivingEntity target,float damage){
+        if(survival!=null)survival.receiveDamage(source,target,damage);
     }
     @Override public void begin(ControlSession.Operation operation) {
         if(!atomicAction(operation.name)) throw error("UNSUPPORTED","Action is not available");
@@ -586,14 +572,11 @@ final class ServerController implements ControlSession.Game {
         if(operation.name.equals("send-chat")) {
             String message=string(args,"message");
             if(message.length()>256||message.stripLeading().startsWith("/")||message.chars().anyMatch(c->c<32||c==127||c==167)) throw error("INVALID_ARGUMENT","Chat must be one ordinary message up to 256 characters");
-            ServerChatEvent event=new ServerChatEvent(player,message,Component.literal(message));
-            outgoingChatEvent=event;
-            try { NeoForge.EVENT_BUS.post(event); }
-            finally { outgoingChatEvent=null; }
-            if(event.isCanceled()) throw error("FORBIDDEN","Server chat event cancelled message");
+            Component said=com.mcbot.servercontrol.platform.LoaderPlatform.get().chatAs(player,message);
+            if(said==null) throw error("FORBIDDEN","Server chat event cancelled message");
             if(!session.mayDrive(operation)) throw error("LEASE_LOST","Lease expired while chat event was processing");
-            server.getPlayerList().broadcastSystemMessage(Component.literal("<"+config.username()+"> ").append(event.getMessage()),false);
-            recordChat(config.username(),event.getMessage().getString());
+            server.getPlayerList().broadcastSystemMessage(Component.literal("<"+config.username()+"> ").append(said),false);
+            recordChat(config.username(),said.getString());
             operation.finish("succeeded","Server broadcast message",null); return;
         }
         if(operation.name.equals("look-at")) { look(point(args)); operation.finish("succeeded","Server view rotated",null); return; }
@@ -940,7 +923,7 @@ final class ServerController implements ControlSession.Game {
         if(oldSink!=null) oldSink.closeSink();
         wasConnected=false; lastDimension=null;
     }
-    void close() {try{remove();}finally{validationProtection.close();NeoForge.EVENT_BUS.unregister(foodFinishListener);NeoForge.EVENT_BUS.unregister(damageListener);NeoForge.EVENT_BUS.unregister(attackGuard);NeoForge.EVENT_BUS.unregister(incomingDamageGuard);NeoForge.EVENT_BUS.unregister(sweepGuard);NeoForge.EVENT_BUS.unregister(trampleGuard);NeoForge.EVENT_BUS.unregister(friendlyFireGuard);NeoForge.EVENT_BUS.unregister(projectileMark);NeoForge.EVENT_BUS.unregister(deathListener);NeoForge.EVENT_BUS.unregister(dropsListener);}}
+    void close() {remove();}
     private void look(Vec3 target) {
         Vec3 delta=target.subtract(player.getEyePosition());
         float yaw=(float)Math.toDegrees(Math.atan2(-delta.x,delta.z));

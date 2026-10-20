@@ -6,19 +6,22 @@ import com.mojang.brigadier.arguments.IntegerArgumentType;
 import net.minecraft.commands.CommandSourceStack;
 import net.minecraft.commands.Commands;
 import net.minecraft.core.BlockPos;
+import com.mojang.brigadier.CommandDispatcher;
 import net.minecraft.network.chat.Component;
-import net.neoforged.neoforge.event.RegisterCommandsEvent;
-import net.neoforged.neoforge.event.entity.player.PlayerEvent;
+import net.minecraft.world.entity.player.Player;
 import static com.mcbot.servercontrol.Protocol.*;
 
-/** Test fixture only: ordinary spawnpoint forces its point, so it cannot test a missing bed. */
+/**
+ * Test fixture only: ordinary spawnpoint forces its point, so it cannot test a missing bed. The loader's event bridge
+ * hands it the command dispatcher and the player clone and respawn events.
+ */
 final class RespawnValidationFixture {
     private static final boolean ENABLED=Boolean.getBoolean("mcbot.validationFixture");
     private static int deathClones,respawnEvents;
     private RespawnValidationFixture() { }
-    static void register(RegisterCommandsEvent event) {
+    static void register(CommandDispatcher<CommandSourceStack> dispatcher) {
         if(!ENABLED) return;
-        event.getDispatcher().register(Commands.literal("mcbot-respawn-fixture").requires(source->source.hasPermission(4))
+        dispatcher.register(Commands.literal("mcbot-respawn-fixture").requires(source->source.hasPermission(4))
             .then(Commands.literal("status").executes(context->status(context.getSource())))
             .then(Commands.literal("clear").executes(context->{
                 BodyPlayer player=body(context.getSource());
@@ -55,10 +58,10 @@ final class RespawnValidationFixture {
         source.sendSuccess(()->Component.literal("MCBOT_RESPAWN_FIXTURE "+JSON.toJson(json)),false);
         return 1;
     }
-    static void cloneEvent(PlayerEvent.Clone event) {
-        if(ENABLED&&event.getEntity() instanceof BodyPlayer&&event.getOriginal()!=event.getEntity()&&event.isWasDeath()) deathClones++;
+    static void cloned(Player player,Player original,boolean wasDeath) {
+        if(ENABLED&&player instanceof BodyPlayer&&original!=player&&wasDeath) deathClones++;
     }
-    static void respawnEvent(PlayerEvent.PlayerRespawnEvent event) {
-        if(ENABLED&&event.getEntity() instanceof BodyPlayer&&!event.isEndConquered()) respawnEvents++;
+    static void respawned(Player player,boolean endConquered) {
+        if(ENABLED&&player instanceof BodyPlayer&&!endConquered) respawnEvents++;
     }
 }

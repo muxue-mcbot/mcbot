@@ -1,4 +1,4 @@
-package com.mcbot.servercontrol.mixin;
+package com.mcbot.servercontrol.versionmixin;
 
 import com.mcbot.servercontrol.NativeRespawn;
 import com.mojang.authlib.GameProfile;

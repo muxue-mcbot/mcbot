@@ -3,6 +3,7 @@ package com.mcbot.servercontrol.platform;
 import java.util.Objects;
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.Direction;
+import net.minecraft.network.chat.Component;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.world.item.ItemStack;
@@ -37,6 +38,13 @@ public interface LoaderPlatform {
      * the loader's right-click event; false when the event is cancelled or denies using the block. Fails closed.
      */
     default boolean mayUseBlock(ServerPlayer player, BlockHitResult hit) { return false; }
+
+    /**
+     * The body says something in chat: posts the loader's server chat event for it, so chat and protection mods can change
+     * or cancel it as for any player. Returns the message after them, or null when the event was cancelled. The loader's
+     * own chat listener must leave this event out (the body records its own line itself). Fails closed.
+     */
+    default Component chatAs(ServerPlayer player, String message) { return null; }
 
     static LoaderPlatform get() {
         LoaderPlatform platform = Holder.current;

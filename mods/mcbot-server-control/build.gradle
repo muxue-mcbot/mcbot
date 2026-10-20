@@ -30,6 +30,10 @@ var generateModMetadata = tasks.register('generateModMetadata', ProcessResources
 }
 sourceSets.main.resources.srcDir generateModMetadata
 neoForge.ideSyncTask generateModMetadata
+// src/main is shared with the Forge 1.20.1 build (../mcbot-server-control-forge1201); this build adds the 1.21.1 NeoForge layer
+// (docs/forge_1201_port.md).
+sourceSets.main.java.srcDir 'src/neoforge-1.21.1/java'
+sourceSets.main.resources.srcDir 'src/neoforge-1.21.1/resources'
 // Typed NBT regressions use the version-pinned game value classes without launching Minecraft.
 sourceSets.test.compileClasspath += sourceSets.main.compileClasspath
 sourceSets.test.runtimeClasspath += sourceSets.main.runtimeClasspath
@@ -40,16 +44,14 @@ tasks.register('controlTest', JavaExec) {
     mainClass = 'com.mcbot.servercontrol.ControlSessionTest'
     jvmArgs '-ea'
 }
-// Only these loader files may use NeoForge classes; everything else stays vanilla-only so a Fabric build can share it
-// (docs/workstation_design.md, "加载器和版本").
-def loaderFiles = ['McbotServerControl.java', 'NeoForgePlatform.java', 'ServerController.java', 'SurvivalActions.java',
-                   'ValidationProtection.java', 'RespawnValidationFixture.java']
+// The shared sources use vanilla classes only: loader code lives in the version folders (src/neoforge-1.21.1, src/forge-1.20.1),
+// so the Forge 1.20.1 build and a later Fabric build compile the same src/main (docs/forge_1201_port.md).
 tasks.register('loaderNeutralCheck') {
     def sources = fileTree('src/main/java') { include '**/*.java' }
     inputs.files sources
     doLast {
-        def bad = sources.files.findAll { !loaderFiles.contains(it.name) && it.getText('UTF-8').contains('net.neoforged') }.collect { it.name }.sort()
-        if (bad) throw new GradleException("NeoForge classes outside the loader files: ${bad}")
+        def bad = sources.files.findAll { def text = it.getText('UTF-8'); text.contains('net.neoforged') || text.contains('net.minecraftforge') }.collect { it.name }.sort()
+        if (bad) throw new GradleException("Loader classes in the shared sources (move them to a version folder): ${bad}")
     }
 }
 tasks.named('check') { dependsOn 'controlTest', 'loaderNeutralCheck' }

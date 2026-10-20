@@ -1,4 +1,4 @@
-package com.mcbot.servercontrol.mixin;
+package com.mcbot.servercontrol.versionmixin;
 
 import com.mcbot.servercontrol.VirtualConnection;
 import net.minecraft.network.Connection;

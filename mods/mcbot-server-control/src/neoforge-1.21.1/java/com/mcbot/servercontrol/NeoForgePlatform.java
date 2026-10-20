@@ -4,6 +4,7 @@ import com.mcbot.servercontrol.platform.ItemSlots;
 import com.mcbot.servercontrol.platform.LoaderPlatform;
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.Direction;
+import net.minecraft.network.chat.Component;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.world.InteractionHand;
@@ -15,12 +16,16 @@ import net.minecraft.world.phys.BlockHitResult;
 import net.neoforged.fml.ModList;
 import net.neoforged.neoforge.capabilities.Capabilities;
 import net.neoforged.neoforge.common.CommonHooks;
+import net.neoforged.neoforge.common.NeoForge;
 import net.neoforged.neoforge.common.util.TriState;
+import net.neoforged.neoforge.event.ServerChatEvent;
 import net.neoforged.neoforge.items.IItemHandler;
 
-/** NeoForge side of {@link LoaderPlatform}; a loader file (allowed to use net.neoforged). */
+/** NeoForge 1.21.1 side of {@link LoaderPlatform} (version folder neoforge-1.21.1). */
 final class NeoForgePlatform implements LoaderPlatform {
     static final NeoForgePlatform INSTANCE=new NeoForgePlatform();
+    /** The chat event the body itself is posting right now; the bridge's chat listener leaves it out. */
+    private ServerChatEvent ownChat;
     private NeoForgePlatform() {}
     public String loader() {return "neoforge";}
     public String loaderModId() {return "neoforge";}
@@ -46,4 +51,12 @@ final class NeoForgePlatform implements LoaderPlatform {
         var event=CommonHooks.onRightClickBlock(player,InteractionHand.MAIN_HAND,hit.getBlockPos(),hit);
         return !event.isCanceled()&&event.getUseBlock()!=TriState.FALSE;
     }
+    public Component chatAs(ServerPlayer player,String message) {
+        ServerChatEvent event=new ServerChatEvent(player,message,Component.literal(message));
+        ownChat=event;
+        try { NeoForge.EVENT_BUS.post(event); }
+        finally { ownChat=null; }
+        return event.isCanceled()?null:event.getMessage();
+    }
+    boolean ownChat(ServerChatEvent event) {return event==ownChat;}
 }

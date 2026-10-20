@@ -3,6 +3,8 @@ loaderVersion="[1,)"
 license="Apache-2.0"
 [[mixins]]
 config="mcbot-server-control.mixins.json"
+[[mixins]]
+config="mcbot-server-control.version.mixins.json"
 [[mods]]
 modId="mcbot_server_control"
 version="${mod_version}"

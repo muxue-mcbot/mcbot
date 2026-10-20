@@ -12,11 +12,10 @@ import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.world.InteractionHand;
 import net.minecraft.world.entity.item.ItemEntity;
 import net.minecraft.world.entity.LivingEntity;
+import net.minecraft.world.damagesource.DamageSource;
 import net.minecraft.world.damagesource.DamageTypes;
-import net.neoforged.neoforge.event.entity.living.LivingDamageEvent;
-import net.neoforged.neoforge.event.entity.living.LivingIncomingDamageEvent;
-import net.neoforged.neoforge.event.entity.player.AttackEntityEvent;
-import net.neoforged.neoforge.event.entity.player.SweepAttackEvent;
+import net.minecraft.world.entity.Entity;
+import net.minecraft.world.entity.player.Player;
 import net.minecraft.world.inventory.*;
 import net.minecraft.world.item.*;
 import net.minecraft.world.level.ClipContext;
@@ -770,8 +769,8 @@ final class SurvivalActions {
                 if(ThreatSense.retreatRequired(player,target,minHealth)||player.isInLava())throw error("RETREAT_REQUIRED","Low health or preparing explosion requires a separately bounded safe retreat");
                 if(player.distanceToSqr(target)>distance*distance||!player.canInteractWithEntity(target,0))return "target_left";
                 if(!player.hasLineOfSight(target))return "lost_line_of_sight";
-                // Someone standing next to the target is no reason to hold back: guardNativeSweep cancels the sweep and
-                // guardNativeIncomingDamage cancels damage to anything but the target, so only the target is hit.
+                // Someone standing next to the target is no reason to hold back: refusesNativeSweep cancels the sweep and
+                // refusesNativeIncomingDamage cancels damage to anything but the target, so only the target is hit.
                 return null;
             }
             public boolean cooledDown(){return player.getAttackStrengthScale(0.5f)>=1f;}
@@ -796,10 +795,11 @@ final class SurvivalActions {
         // Initial eligibility failures precede any native attack. Every subsequent tick repeats these checks.
         defense=use;lastDefenseTick=player.getServer().getTickCount();use.tick();if(!use.alive())defense=null;
     }
-    void receiveDamage(LivingDamageEvent.Post event) {
+    /** Damage that went through (after armour and every mod): the receipt of a native attack in progress. */
+    void receiveDamage(DamageSource source,LivingEntity target,float damage) {
         NativeAttackScope use=NATIVE_ATTACKS.get(player);
-        if(use!=null&&event.getSource().getDirectEntity()==player&&event.getSource().getEntity()==player&&event.getSource().is(DamageTypes.PLAYER_ATTACK))
-            use.receipt(event.getEntity().getUUID().toString(),event.getNewDamage());
+        if(use!=null&&source.getDirectEntity()==player&&source.getEntity()==player&&source.is(DamageTypes.PLAYER_ATTACK))
+            use.receipt(target.getUUID().toString(),damage);
     }
     static boolean nativeWriteInProgress(ServerPlayer player) {return player!=null&&NATIVE_ATTACKS.containsKey(player);}
     /** One guard attack inside its own scope, so the same attack, damage and sweep guards apply to it as to defense. */
@@ -808,21 +808,23 @@ final class SurvivalActions {
         NATIVE_ATTACKS.put(player,scope);
         try {attack.run();} finally {NATIVE_ATTACKS.remove(player,scope);}
     }
-    static void guardNativeAttack(AttackEntityEvent event) {
-        NativeAttackScope scope=NATIVE_ATTACKS.get(event.getEntity());
-        if(scope!=null&&!scope.allowNativeTarget(event.getTarget().getUUID().toString()))event.setCanceled(true);
+    // The guards below run from the loader's event bridge (lowest priority, also on cancelled events); true cancels the event.
+    /** A player's attack on an entity: refused inside a native attack scope unless it is the authorized target. */
+    static boolean refusesNativeAttack(Player attacker,Entity target) {
+        NativeAttackScope scope=NATIVE_ATTACKS.get(attacker);
+        return scope!=null&&!scope.allowNativeTarget(target.getUUID().toString());
     }
-    static void guardNativeIncomingDamage(LivingIncomingDamageEvent event) {
-        NativeAttackScope scope=NATIVE_ATTACKS.get(event.getSource().getDirectEntity());
-        if(scope==null)return;
-        boolean authorized=event.getSource().getEntity()==event.getSource().getDirectEntity()&&event.getSource().is(DamageTypes.PLAYER_ATTACK);
+    /** Damage about to be dealt: inside a native attack scope only the player's own attack on the authorized target goes through. */
+    static boolean refusesNativeIncomingDamage(DamageSource source,LivingEntity target) {
+        NativeAttackScope scope=NATIVE_ATTACKS.get(source.getDirectEntity());
+        if(scope==null)return false;
+        boolean authorized=source.getEntity()==source.getDirectEntity()&&source.is(DamageTypes.PLAYER_ATTACK);
         if(!authorized)scope.refuseNative(error("DEFENSE_EFFECT_UNKNOWN","Unexpected native damage source inside defense"));
-        if(!authorized||!scope.allowNativeTarget(event.getEntity().getUUID().toString()))event.setCanceled(true);
+        return !authorized||!scope.allowNativeTarget(target.getUUID().toString());
     }
-    static void guardNativeSweep(SweepAttackEvent event) {
-        if(!NATIVE_ATTACKS.containsKey(event.getEntity()))return;
-        // Native single-target defense never authorizes an area attack, including Mod-forced axe sweeps.
-        event.setSweeping(false);event.setCanceled(true);
+    /** A sweep: native single-target defense never authorizes an area attack, including Mod-forced axe sweeps. */
+    static boolean refusesNativeSweep(Player attacker) {
+        return NATIVE_ATTACKS.containsKey(attacker);
     }
     private void stopNativeFoodUse() {
         try { if(player.isUsingItem())action(ServerboundPlayerActionPacket.Action.RELEASE_USE_ITEM,BlockPos.ZERO,Direction.DOWN); }
