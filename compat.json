@@ -1,7 +1,7 @@
 {
   "schema": 1,
   "note": "支持范围的唯一来源：网站、README 和 WebUI 的模组页都读这份。改了模组里锁的版本就改这里，scripts/check-compat.mjs 会对一遍。",
-  "updated": "2026-10-15",
+  "updated": "2026-10-24",
   "platform": {
     "minecraft": "1.21.1",
     "loader": "neoforge",
@@ -23,7 +23,7 @@
     "id": "mcbot_server_control",
     "name": "MCBOT Server Control",
     "project": "mods/mcbot-server-control",
-    "jar": "mcbot-server-control-0.0.5.jar",
+    "jar": "mcbot-server-control-0.0.6.jar",
     "side": "server",
     "required": true,
     "what": "服务端身体：Bot 作为服务器中的模拟玩家运行，玩家只需使用自己的客户端"
@@ -113,7 +113,7 @@
       "kind": "addon",
       "project": "mods/mcbot-farmers-delight",
       "jar": "mcbot-farmers-delight-0.0.1.jar",
-      "coreMin": "0.0.5",
+      "coreMin": "0.0.6",
       "what": ["砧板：放上食材、用刀或斧切开、取回", "宴席分餐（拿碗盛一份）和用刀切派", "厨锅：放入多种原料和碗、加热后自动烹饪、取出成品", "炉灶点火、直接烤；平底锅放一组食材烤好再捡回", "剪蘑菇菌落；橱柜和篮子当箱子用", "番茄藤右键摘（不拆藤）；卷心菜、洋葱照常收和补种；稻米只收稻穗"],
       "evidence": "隔离服实测（全部功能），尚未用真实模型试玩",
       "requires": [
