@@ -920,8 +920,8 @@ function plugCard() {
   d.innerHTML = '<div class="pt"><b></b><small></small><span class="chip"></span></div><div class="pw"></div><div class="chips"></div><div class="pn"></div><div class="pb"><span class="meta"></span><button type="button" class="small go"></button><button type="button" class="small ghost un">卸载</button></div>'
     + '<div class="ai" hidden><label><input type="checkbox" class="sw">给 AI 使用</label><small></small></div>';
   $('.ai input', d).onchange = (e) => pluginAi(d, e.target.checked);
-  $('.go', d).onclick = () => pluginAction(d._p, 'install');
-  $('.un', d).onclick = () => pluginAction(d._p, 'uninstall');
+  $('.go', d).onclick = (e) => pluginAction(d._p, 'install', e.currentTarget);
+  $('.un', d).onclick = (e) => pluginAction(d._p, 'uninstall', e.currentTarget);
   return d;
 }
 function updatePlug(d, p) {
@@ -940,11 +940,10 @@ function updatePlug(d, p) {
   $('.pw', d).textContent = (p.what || []).join('；');
   $('.chips', d).replaceChildren(...p.parts.map(partChip));
   $('.meta', d).textContent = p.evidence ? '验证：' + p.evidence : ''; $('.meta', d).title = $('.meta', d).textContent;
-  const go = $('.go', d), un = $('.un', d), blocked = (plug?.running || 'off') !== 'off', bad = !!plug?.unsupported;
+  // 游戏开着时按钮照样能点：点了由服务端重新查、弹窗说明原因（锁住的按钮看不到原因，关掉游戏后页面也不会自己解锁）
+  const go = $('.go', d), un = $('.un', d), bad = !!plug?.unsupported;
   go.hidden = !p.canInstall; go.textContent = p.overall === 'none' ? '安装' : core || p.overall === 'update' ? '更新' : '修复'; go.className = 'small go' + (p.overall === 'none' ? ' primary' : '');
-  un.hidden = !p.canUninstall; go.disabled = blocked || bad; un.disabled = blocked;
-  go.title = un.title = blocked ? plug.runMessage : '';
-  if (bad) go.title = plug.unsupported;
+  un.hidden = !p.canUninstall; go.disabled = bad; go.title = bad ? plug.unsupported : '';
   // 「给 AI 使用」：每个已安装的插件一个，默认开启；关闭后 AI 看不到此插件的工具，玩家照常使用
   const ai = $('.ai', d), on = !(plug?.aiOff || []).includes(p.id);
   ai.hidden = core || p.overall === 'none';
@@ -972,9 +971,8 @@ function renderPlugins() {
   if (!plug) { w.hidden = true; return emptyIn(box, plugErr || '读取中…'); }
   $('#p-where').textContent += plug.manifestAt ? '插件版本信息检查于 ' + when(plug.manifestAt) + '。' : '尚未读取到插件的更新信息，按主程序自带的版本显示。';
   const pending = [plug.core, ...plug.plugins].filter((p) => p.canInstall && (p === plug.core || p.overall !== 'none') && p.overall !== 'ok');
-  const running = (plug.running || 'off') !== 'off';
-  all.hidden = !pending.length; all.disabled = running || !!plug.unsupported; all.title = running ? plug.runMessage : '';
-  rm.hidden = plug.core.overall === 'none'; rm.disabled = running; rm.title = running ? plug.runMessage : '移走核心模组、所有适配和 mcbot 的配置；被适配的模组本体保留';
+  all.hidden = !pending.length; all.disabled = !!plug.unsupported;
+  rm.hidden = plug.core.overall === 'none'; rm.title = '移走核心模组、所有适配和 mcbot 的配置；被适配的模组本体保留';
   const busy = (plug.running || 'off') !== 'off';
   w.hidden = !plug.unsupported && !busy && plug.type !== 'server';
   w.textContent = plug.unsupported ? plug.unsupported + '。此游戏无法安装插件。' : busy ? plug.runMessage + '。'
@@ -982,8 +980,8 @@ function renderPlugins() {
   keyed(box, [plug.core, ...plug.plugins], (p) => p.id, plugCard, updatePlug);
 }
 $('#p-refresh').onclick = loadPlugins;
-$('#p-all').onclick = () => pluginAction({ id: '', name: '全部更新' }, 'update-all');
-$('#p-remove-all').onclick = () => pluginAction({ id: '', name: '从此游戏移除 mcbot' }, 'remove-all');
+$('#p-all').onclick = (e) => pluginAction({ id: '', name: '全部更新' }, 'update-all', e.currentTarget);
+$('#p-remove-all').onclick = (e) => pluginAction({ id: '', name: '从此游戏移除 mcbot' }, 'remove-all', e.currentTarget);
 
 const STEP = {
   download: (s) => ['dl', '下载', s.file + '（' + (s.sizeText ? s.sizeText + '，' : '') + '来自 ' + s.source + (s.license ? '，许可证 ' + s.license : '') + '）'],
@@ -992,11 +990,19 @@ const STEP = {
   'remove-dir': (s) => ['rm', '移到备份', s.file + '/（' + s.why + '）'],
   config: (s) => ['cf', '修改配置', s.file + '：' + (s.set ? '启用 ' + Object.entries(s.set).map(([m, v]) => m + ' ' + v).join('、') : '移除 ' + s.unset.join('、'))],
 };
-let dlgTimer = 0, dlgRun = null;
+let dlgTimer = 0, dlgRun = null, planning = false;
 function closeDlg() { clearInterval(dlgTimer); dlgRun = null; $('#p-dlg').hidden = true; }
-async function pluginAction(p, action) {
-  const dir = gameDir, r = await post('/api/plugins/plan', { dir, id: p.id, action });
-  if (!r.ok) return showDlg(p.name, [], [], r.error, true);
+async function pluginAction(p, action, btn) {
+  // 出计划时服务端要重新查游戏开没开（要零点几秒）：期间按钮锁住，别的按钮也不响应，免得弹出两个对话框
+  if (planning) return;
+  planning = true; btn.disabled = true;
+  const dir = gameDir;
+  let r;
+  try { r = await post('/api/plugins/plan', { dir, id: p.id, action }); } catch (e) { r = { ok: false, error: e.message }; }
+  planning = false; btn.disabled = false;
+  // 游戏可能已经开了或关了，和页面上显示的不一样：顺便刷新上面的提示
+  if (!r.ok) return showDlg(p.name, [], [], r.error, true), loadPlugins();
+  if ((plug?.running || 'off') !== 'off') loadPlugins();
   if (r.nothing) return showDlg(r.name || p.name, [], [], action === 'remove-all' ? '此游戏中没有 mcbot 的文件' : '已是最新，无需修改', false), loadPlugins();
   const verb = action === 'install' ? (p.overall === 'none' ? '安装 ' : p.overall === 'update' || p.kind === 'core' ? '更新 ' : '修复 ') : action === 'uninstall' ? '卸载 ' : '';
   showDlg(verb + (r.name || p.name), r.steps, r.notes, '', false, async () => {

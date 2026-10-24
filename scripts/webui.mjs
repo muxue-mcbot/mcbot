@@ -267,7 +267,12 @@ export function createWebServer({ runtime, token = crypto.randomBytes(24).toStri
           appVersion: catalog.appVersion, manifestAt: catalog.manifestAt || 0 });
       }
       if (p === '/api/plugins/ai') return send(res, 200, setPluginAi(runtime, game.dir, String(body.id || ''), body.enabled, catalog));
-      if (p === '/api/plugins/plan') return send(res, 200, planPlugin(game.dir, String(body.id || ''), String(body.action || ''), { ...pluginOpts, catalog }));
+      if (p === '/api/plugins/plan') {
+        // 网页上的运行状态是读插件页时查的，关掉游戏后不会自己变；每次点按钮都重新查，开着就把原因告诉用户
+        const busy = runMessage((await gameRunState(game.dir, pluginOpts)).state, gameType(game.dir));
+        if (busy) return send(res, 200, { ok: false, error: busy });
+        return send(res, 200, planPlugin(game.dir, String(body.id || ''), String(body.action || ''), { ...pluginOpts, catalog }));
+      }
       if (p === '/api/plugins/apply') { const r = pluginJobs.start(game.dir, String(body.id || ''), String(body.action || ''), catalog); return send(res, r.ok ? 200 : 409, r); }
       return send(res, 404, { error: 'not found' });
     }

@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { DSH_DEFAULTS, DSH_DISABLED_ROWS, acpMcpServer, createDshConnection, dshCommand, dshCompaction, dshEffort, dshPatch, pickModel } from '../../scripts/agents/dsh-acp.mjs';
+import { DSH_DEFAULTS, DSH_DISABLED_ROWS, DSH_UNINSTALL_KEY, acpMcpServer, createDshConnection, dshCommand, dshCompaction, dshEffort, dshPatch, pickModel, registeredDshDir } from '../../scripts/agents/dsh-acp.mjs';
 import { SERVER_GAME_INSTRUCTIONS } from '../../scripts/agents/game-instructions.mjs';
 import { agentConfigDir, getAgentProtocol } from '../../scripts/agents/process-protocols.mjs';
 import { parseArgs, resolveMemory, startupPrompt, bodySessionScope } from '../../scripts/companion.mjs';
@@ -77,8 +77,10 @@ test('dsh 自己的自动压缩按宿主的上限触发：比例 = 上限 ÷ 窗
 
 test('dsh 命令只用锁定安装或明确指定的 bin，找不到就说明怎么装', () => {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'mcbot-dsh-'));
+  // 注册表里没有登记（不让本机装的桌面版影响结果）
+  const registered = () => '';
   try {
-    assert.throws(() => dshCommand({ root: dir, patchFile: 'p.yml', env: {} }), /桌面版，或在 runtime\/dsh 里安装 @deepseek-ai\/dsh@0\.2\.0-rc\.2/);
+    assert.throws(() => dshCommand({ root: dir, patchFile: 'p.yml', env: {}, registered }), /桌面版，或在 runtime\/dsh 里安装 @deepseek-ai\/dsh@0\.2\.0-rc\.2/);
     const bin = path.join(dir, 'bin.js'); fs.writeFileSync(bin, '');
     assert.deepEqual(dshCommand({ root: dir, patchFile: 'p.yml', env: { MCBOT_DSH_BIN: bin } }),
       { cmd: process.execPath, a: [bin, '--profile', 'acp', '--patch', 'p.yml'] });
@@ -90,15 +92,31 @@ test('dsh 命令只用锁定安装或明确指定的 bin，找不到就说明怎
     fs.writeFileSync(path.join(desktop, 'DeepSeek Harness.exe'), ''); fs.writeFileSync(path.join(desktop, 'resources', 'app.asar'), '');
     const cli = path.join(desktop, 'resources', 'app.asar', 'dsh', 'node_modules', '@deepseek-ai', 'dsh-desktop-host', 'lib', 'cli.js');
     const viaDesktop = { cmd: path.join(desktop, 'DeepSeek Harness.exe'), a: ['--expose-internals', cli, '--profile', 'acp', '--patch', 'p.yml'] };
-    assert.deepEqual(dshCommand({ root: dir, patchFile: 'p.yml', env: { LOCALAPPDATA: dir } }), viaDesktop);
+    assert.deepEqual(dshCommand({ root: dir, patchFile: 'p.yml', env: { LOCALAPPDATA: dir }, registered }), viaDesktop);
     assert.deepEqual(dshCommand({ root: dir, patchFile: 'p.yml', env: { MCBOT_DSH_DESKTOP: desktop } }), viaDesktop);
     assert.throws(() => dshCommand({ root: dir, patchFile: 'p.yml', env: { MCBOT_DSH_DESKTOP: dir } }), /MCBOT_DSH_DESKTOP/);
+    // 装在别的盘：按注册表登记的安装目录找，先于默认位置
+    const elsewhere = path.join(dir, 'D', 'Apps', 'DeepSeek Harness');
+    fs.cpSync(desktop, elsewhere, { recursive: true });
+    assert.deepEqual(dshCommand({ root: dir, patchFile: 'p.yml', env: { LOCALAPPDATA: dir }, registered: () => elsewhere }).cmd, path.join(elsewhere, 'DeepSeek Harness.exe'));
+    assert.deepEqual(dshCommand({ root: dir, patchFile: 'p.yml', env: { LOCALAPPDATA: dir }, registered: () => path.join(dir, 'gone') }), viaDesktop, '登记的目录已删掉时退回默认位置');
     // 仓库里有锁定安装就优先用它；明确指定桌面版时用桌面版。
     const locked = path.join(dir, 'runtime', 'dsh', 'node_modules', '@deepseek-ai', 'dsh', 'lib', 'bin.js');
     fs.mkdirSync(path.dirname(locked), { recursive: true }); fs.writeFileSync(locked, '');
-    assert.deepEqual(dshCommand({ root: dir, patchFile: 'p.yml', env: { LOCALAPPDATA: dir } }), { cmd: process.execPath, a: [locked, '--profile', 'acp', '--patch', 'p.yml'] });
+    assert.deepEqual(dshCommand({ root: dir, patchFile: 'p.yml', env: { LOCALAPPDATA: dir }, registered: () => { throw new Error('有锁定安装时不该查注册表'); } }), { cmd: process.execPath, a: [locked, '--profile', 'acp', '--patch', 'p.yml'] });
     assert.deepEqual(dshCommand({ root: dir, patchFile: 'p.yml', env: { MCBOT_DSH_DESKTOP: desktop } }), viaDesktop);
   } finally { fs.rmSync(dir, { recursive: true, force: true }); }
+});
+
+test('桌面版的安装目录从注册表的卸载项读，先当前用户、再所有用户，.reg 里的转义还原', () => {
+  const keys = [];
+  const reg = (lines) => (key) => { keys.push(key); return lines[key.slice(0, 4)] ?? ''; };
+  const exported = (dir) => `Windows Registry Editor Version 5.00\r\n\r\n[HKEY_LOCAL_MACHINE\\${DSH_UNINSTALL_KEY}]\r\n"DisplayName"="DeepSeek Harness 0.2.1-rc.2"\r\n"InstallLocation"="${dir}"\r\n`;
+  assert.equal(registeredDshDir({ platform: 'win32', exportKey: reg({ HKLM: exported('D:\\\\软件\\\\DeepSeek \\"Harness\\"') }) }), 'D:\\软件\\DeepSeek "Harness"');
+  assert.deepEqual(keys, [`HKCU\\${DSH_UNINSTALL_KEY}`, `HKLM\\${DSH_UNINSTALL_KEY}`]);
+  assert.equal(registeredDshDir({ platform: 'win32', exportKey: reg({ HKCU: exported('E:\\\\dsh'), HKLM: exported('D:\\\\dsh') }) }), 'E:\\dsh');
+  assert.equal(registeredDshDir({ platform: 'win32', exportKey: reg({}) }), '');
+  assert.equal(registeredDshDir({ platform: 'linux', exportKey: () => { throw new Error('不是 Windows 不查'); } }), '');
 });
 
 test('dsh 是独立试玩身份：只接 ServerBody，账号目录默认在仓库里，不读小克的记忆', () => {

@@ -241,8 +241,9 @@ test('游戏版本：实例读 mmc-pack.json、服务器读 libraries、版本�
 test('WebUI 插件接口：只改游戏列表里的目录，安装在后台跑、网页轮询结果', async () => {
   const f = fixture(), game = path.join(f.root, 'inst'), runtime = path.join(f.root, 'runtime');
   put(path.join(game, 'mods', 'mcbot-server-control-0.1.0.jar'), f.core);
+  let worldOpen = false;
   const web = createWebServer({ runtime, token: 'fa01', launcher: { launch: () => ({ ok: true }), status: () => null },
-    plugins: { catalog: f.catalog, downloads: f.downloads, fetchImpl: f.fetchImpl, online: async () => false, listProcesses: async () => [], knownGames: () => [{ dir: game }] } });
+    plugins: { catalog: f.catalog, downloads: f.downloads, fetchImpl: f.fetchImpl, online: async () => worldOpen, listProcesses: async () => [], knownGames: () => [{ dir: game }] } });
   const port = await web.listen(0), base = `http://127.0.0.1:${port}`;
   try {
     const cookie = (await fetch(`${base}/?t=fa01`, { redirect: 'manual' })).headers.get('set-cookie').split(';')[0];
@@ -250,6 +251,10 @@ test('WebUI 插件接口：只改游戏列表里的目录，安装在后台跑�
     assert.match((await post('/api/plugins', { dir: path.join(f.root, 'elsewhere') })).error, /不在游戏列表/);
     const s = await post('/api/plugins', { dir: game });
     assert.deepEqual([s.ok, s.type, s.online, s.core.overall], [true, 'lan', false, 'ok']);
+    // 出计划时重新查游戏开没开，不靠网页上次读到的状态
+    worldOpen = true;
+    assert.deepEqual(await post('/api/plugins/plan', { dir: game, id: 'iron_furnaces', action: 'install' }), { ok: false, error: '世界运行中：请先退出世界并关闭游戏再操作' });
+    worldOpen = false;
     const plan = await post('/api/plugins/plan', { dir: game, id: 'iron_furnaces', action: 'install' });
     assert.deepEqual(plan.steps.map((x) => [x.op, x.file]), [['add', 'mcbot-iron-furnaces-0.1.0.jar'], ['download', 'ironfurnaces-4.3.2.jar'], ['add', 'ironfurnaces-4.3.2.jar']]);
     assert.equal((await post('/api/plugins/apply', { dir: game, id: 'iron_furnaces', action: 'install' })).ok, true);

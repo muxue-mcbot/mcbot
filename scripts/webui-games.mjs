@@ -155,13 +155,19 @@ export function referenceCore(root = ROOT) {
 export const gameType = (dir) => (fs.existsSync(path.join(String(dir || ''), 'server.properties')) ? 'server' : 'lan');
 
 /**
+ * 游戏 mods 里的核心模组 jar 文件名；没有 mods 时为空。
+ */
+export function coreJars(dir) {
+  try { return fs.readdirSync(path.join(dir, 'mods')).filter((n) => /^mcbot-server-control-.*\.jar$/i.test(n)); } catch { return []; }
+}
+
+/**
  * 一个游戏目录的状态：核心模组、Bot 名、连接文件（不带令牌）。
  * core：missing 未安装；old 比主程序旧；newer 比主程序新；different 装了不止一个，或版本相同但和本地构建字节不同；ok。
  */
 export function inspectGame(game, ref = referenceCore(), support = (dir) => { const r = gameSupport(dir); return { supported: r.supported, versionText: r.have || '', unsupported: r.reason || '' }; }) {
   const mods = path.join(game.dir, 'mods');
-  let jars = [];
-  try { jars = fs.readdirSync(mods).filter((n) => /^mcbot-server-control-.*\.jar$/i.test(n)); } catch { /* 没有 mods */ }
+  const jars = coreJars(game.dir);
   let core = jars.length ? 'ok' : 'missing', coreVersion = '';
   if (jars.length) {
     const e = readZipEntries(path.join(mods, jars[0]), ['META-INF/neoforge.mods.toml', 'META-INF/MANIFEST.MF']) || {};

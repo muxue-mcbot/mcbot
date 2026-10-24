@@ -1,7 +1,9 @@
 // DeepSeek Harness（dsh）的 ACP 适配：`dsh --profile acp` 讲标准 ACP v1（stdio 上的 JSON-RPC）。
 // 和 Codex app-server 一样只做协议转换，不持有游戏状态；接口：start / sendTurn / handleMessage / interrupt / dispose。
 import fs from 'node:fs';
+import os from 'node:os';
 import path from 'node:path';
+import { spawnSync } from 'node:child_process';
 import { SERVER_GAME_INSTRUCTIONS } from './game-instructions.mjs';
 import { runtimeDir } from '../paths.mjs';
 
@@ -61,36 +63,68 @@ export function writeDshPatch(file, instructions = '', compaction = {}) {
   return file;
 }
 
-/** DeepSeek Harness 桌面版自带的 dsh：用它的 Electron 当 Node 跑 app.asar 里的命令行（和它的 dsh.cmd 一样，要 ELECTRON_RUN_AS_NODE=1）。 */
-export function desktopDsh(env = process.env) {
-  const dir = env.MCBOT_DSH_DESKTOP || (env.LOCALAPPDATA ? path.join(env.LOCALAPPDATA, 'Programs', 'DeepSeek Harness') : '');
-  if (!dir) return null;
-  const exe = path.join(dir, 'DeepSeek Harness.exe');
-  const asar = path.join(dir, 'resources', 'app.asar');
-  if (!fs.existsSync(exe) || !fs.existsSync(asar)) return null;
-  return { exe, cli: path.join(asar, 'dsh', 'node_modules', '@deepseek-ai', 'dsh-desktop-host', 'lib', 'cli.js') };
+// DeepSeek Harness 安装程序（electron-builder 的 NSIS）登记的卸载项：GUID 由它的 appId 算出，不随版本变；
+// 装在哪个盘、装给当前用户（HKCU）还是所有用户（HKLM），安装目录都写在这一项的 InstallLocation 里。
+export const DSH_UNINSTALL_KEY = 'Software\\Microsoft\\Windows\\CurrentVersion\\Uninstall\\1bf39983-50d0-5fe0-9ef4-cece76f67c5e';
+
+/** 注册表里登记的桌面版安装目录，先当前用户、再所有用户；没装或不是 Windows 时返回空字符串。 */
+export function registeredDshDir({ platform = process.platform, exportKey = regExport } = {}) {
+  if (platform !== 'win32') return '';
+  for (const hive of ['HKCU', 'HKLM']) {
+    const m = /^"InstallLocation"="((?:[^"\\]|\\.)*)"\r?$/m.exec(exportKey(`${hive}\\${DSH_UNINSTALL_KEY}`));
+    if (m) return m[1].replace(/\\(.)/g, '$1');
+  }
+  return '';
+}
+
+// 用 reg export 而不是 reg query：导出的文件固定是 UTF-16，reg query 的输出跟着控制台代码页走，中文路径会读坏。
+function regExport(key) {
+  let dir = '';
+  try {
+    dir = fs.mkdtempSync(path.join(os.tmpdir(), 'mcbot-reg-'));
+    const file = path.join(dir, 'key.reg');
+    const r = spawnSync('reg', ['export', key, file, '/y'], { windowsHide: true, stdio: 'ignore' });
+    return r.status === 0 ? fs.readFileSync(file, 'utf16le') : '';
+  } catch { return ''; } finally { if (dir) fs.rmSync(dir, { recursive: true, force: true }); }
 }
 
 /**
- * 找 dsh 的顺序：MCBOT_DSH_BIN（别处的 bin.js）> MCBOT_DSH_DESKTOP（指定的桌面版目录）> 数据目录 runtime/dsh 的锁定安装 > 默认位置的桌面版。
+ * DeepSeek Harness 桌面版自带的 dsh：用它的 Electron 当 Node 跑 app.asar 里的命令行（和它的 dsh.cmd 一样，要 ELECTRON_RUN_AS_NODE=1）。
+ * 目录：MCBOT_DSH_DESKTOP 指定的 > 注册表里登记的 > 默认位置。
  */
-export function dshCommand({ root, patchFile, env = process.env }) {
-  const profile = ['--profile', 'acp', '--patch', patchFile];
-  const locked = path.join(runtimeDir(root, env), 'dsh', 'node_modules', '@deepseek-ai', 'dsh', 'lib', 'bin.js');
-  let command;
+export function desktopDsh(env = process.env, { registered = registeredDshDir } = {}) {
+  const dirs = env.MCBOT_DSH_DESKTOP ? [env.MCBOT_DSH_DESKTOP]
+    : [registered(), env.LOCALAPPDATA ? path.join(env.LOCALAPPDATA, 'Programs', 'DeepSeek Harness') : ''];
+  for (const dir of dirs.filter(Boolean)) {
+    const exe = path.join(dir, 'DeepSeek Harness.exe');
+    const asar = path.join(dir, 'resources', 'app.asar');
+    if (fs.existsSync(exe) && fs.existsSync(asar)) return { exe, cli: path.join(asar, 'dsh', 'node_modules', '@deepseek-ai', 'dsh-desktop-host', 'lib', 'cli.js') };
+  }
+  return null;
+}
+
+/**
+ * 找 dsh，返回不带 profile 参数的命令；找不到就报错。顺序：MCBOT_DSH_BIN（别处的 bin.js）> MCBOT_DSH_DESKTOP（指定的桌面版目录）
+ * > 数据目录 runtime/dsh 的锁定安装 > 桌面版（注册表里登记的目录，再默认位置）。
+ */
+export function locateDsh({ root, env = process.env, registered = registeredDshDir }) {
   if (env.MCBOT_DSH_BIN) {
     const bin = path.resolve(env.MCBOT_DSH_BIN);
     if (!fs.existsSync(bin)) throw new Error(`MCBOT_DSH_BIN 指的 dsh 不存在：${bin}`);
-    command = { cmd: process.execPath, a: [bin, ...profile] };
-  } else {
-    const desktop = desktopDsh(env);
-    if (env.MCBOT_DSH_DESKTOP && !desktop) throw new Error(`MCBOT_DSH_DESKTOP 里找不到 DeepSeek Harness 桌面版：${env.MCBOT_DSH_DESKTOP}`);
-    if (!env.MCBOT_DSH_DESKTOP && fs.existsSync(locked)) command = { cmd: process.execPath, a: [locked, ...profile] };
-    else if (desktop) command = { cmd: desktop.exe, a: ['--expose-internals', desktop.cli, ...profile] };
-    else throw new Error(`找不到 dsh：请安装 DeepSeek Harness 桌面版，或在 runtime/dsh 里安装 @deepseek-ai/dsh@${DSH_VERSION}（见 docs/dev.md）`);
+    return { cmd: process.execPath, a: [bin] };
   }
+  const locked = path.join(runtimeDir(root, env), 'dsh', 'node_modules', '@deepseek-ai', 'dsh', 'lib', 'bin.js');
+  if (!env.MCBOT_DSH_DESKTOP && fs.existsSync(locked)) return { cmd: process.execPath, a: [locked] };
+  const desktop = desktopDsh(env, { registered });
+  if (desktop) return { cmd: desktop.exe, a: ['--expose-internals', desktop.cli] };
+  if (env.MCBOT_DSH_DESKTOP) throw new Error(`MCBOT_DSH_DESKTOP 里找不到 DeepSeek Harness 桌面版：${env.MCBOT_DSH_DESKTOP}`);
+  throw new Error(`找不到 dsh：请安装 DeepSeek Harness 桌面版，或在 runtime/dsh 里安装 @deepseek-ai/dsh@${DSH_VERSION}（见 docs/dev.md）`);
+}
+
+export function dshCommand({ root, patchFile, env = process.env, registered = registeredDshDir }) {
+  const { cmd, a } = locateDsh({ root, env, registered });
   if (!patchFile) throw new Error('dsh 托管需要生成的 profile 补丁');
-  return command;
+  return { cmd, a: [...a, '--profile', 'acp', '--patch', patchFile] };
 }
 
 /** 托管 MCP 配置转成 ACP 的 stdio 声明：命令必须是绝对路径，环境变量是 name/value 列表。 */

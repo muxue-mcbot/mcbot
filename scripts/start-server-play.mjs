@@ -12,7 +12,8 @@ import { fileURLToPath } from 'node:url';
 import { respawnIfDead } from './server-body-control.mjs';
 import { RECONNECT_EXIT } from './companion.mjs';
 import { runtimeDir } from './paths.mjs';
-import { inspectGame, referenceCore } from './webui-games.mjs';
+import { coreJars, inspectGame, referenceCore } from './webui-games.mjs';
+import { locateDsh } from './agents/dsh-acp.mjs';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const AGENTS = ['claude', 'codex', 'dsh'];
@@ -63,13 +64,12 @@ export function checkGameCore(connectionPath, { root = ROOT, ref = referenceCore
   const dir = path.dirname(path.dirname(control));
   const game = inspectGame({ dir }, ref, () => ({}));
   const have = game.coreVersion || '无法读取';
-  let jars = 0;
-  try { jars = fs.readdirSync(path.join(dir, 'mods')).filter((n) => /^mcbot-server-control-.*\.jar$/i.test(n)).length; } catch { /* 没有 mods */ }
+  const jars = coreJars(dir).length;
   if (game.core === 'old') return { block: `游戏中的核心模组（${have}）比主程序（${ref.version}）旧：先关游戏，到插件页更新` };
   if (game.core === 'newer') return { block: `游戏中的核心模组（${have}）比主程序（${ref.version}）新：请先更新主程序，或先关游戏，到插件页更新` };
   if (game.core === 'different' && jars > 1) return { block: `游戏的 mods 中有 ${jars} 个核心模组：先关游戏，到插件页更新` };
   if (game.core === 'different') return { warn: `游戏中的核心模组版本与主程序相同（${have}），但与本机构建的文件不同；如有问题，请关闭游戏后到插件页更新` };
-  if (game.core === 'missing') return { warn: '游戏的 mods 中未找到核心模组：请先关闭游戏，到插件页安装' };
+  if (game.core === 'missing') return { missing: true, warn: '游戏的 mods 中未找到核心模组：请先关闭游戏，到插件页安装' };
   return {};
 }
 
@@ -127,14 +127,9 @@ export function prepareServerPlay(options, { root = ROOT, env = process.env, exe
   const entry = path.join(root, 'client-runtime', 'dist', 'main.js');
   const prepareOnly = !!options['prepare-only'];
   if (!prepareOnly && !fs.existsSync(entry)) throw new Error('未找到运行端：请先在 client-runtime 目录运行 npm install 和 npm run build');
-  // dsh 用 DeepSeek Harness 桌面版自带的，或 runtime/dsh 的锁定安装（见 docs/dsh.md）；DeepSeek 凭据用 DEEPSEEK_API_KEY 或 dsh 自己的凭据配置提供，这里不读取。
-  if (agent === 'dsh' && !prepareOnly && !env.MCBOT_DSH_BIN) {
-    const dshBin = path.join(runtimeDir(root, env), 'dsh', 'node_modules', '@deepseek-ai', 'dsh', 'lib', 'bin.js');
-    const desktop = env.MCBOT_DSH_DESKTOP || path.join(env.LOCALAPPDATA || '', 'Programs', 'DeepSeek Harness');
-    if (!fs.existsSync(dshBin) && !fs.existsSync(path.join(desktop, 'DeepSeek Harness.exe'))) {
-      throw new Error('未找到 dsh：请安装 DeepSeek Harness 桌面版，或在 runtime/dsh 中运行 npm install --save-exact @deepseek-ai/dsh@0.2.0-rc.2');
-    }
-  }
+  // dsh 用 DeepSeek Harness 桌面版自带的，或 runtime/dsh 的锁定安装（见 docs/dsh.md），找法和驱动器启动 dsh 时同一个；
+  // DeepSeek 凭据用 DEEPSEEK_API_KEY 或 dsh 自己的凭据配置提供，这里不读取。
+  if (agent === 'dsh' && !prepareOnly) locateDsh({ root, env });
   const playDir = path.join(runtimeDir(root, env), 'server-play', name);
   fs.mkdirSync(playDir, { recursive: true });
   const configFile = path.join(playDir, 'mcp.json');
@@ -163,10 +158,11 @@ export function prepareServerPlay(options, { root = ROOT, env = process.env, exe
   return { name, worldId, configFile, nodePath, driverArgs, lines, prepareOnly };
 }
 
-const WAIT_TEXT = {
+export const WAIT_TEXT = {
   closed: '等待世界打开：请进入游戏打开世界（单人模式还需按 Esc 选择「对局域网开放」），或启动服务器',
   SINGLEPLAYER_NOT_LAN: '世界已打开：请按 Esc 选择「对局域网开放」',
   GAME_PAUSED: '游戏已暂停：请返回游戏',
+  noCore: '游戏的 mods 中未找到核心模组，世界已打开也无法连接：请关闭游戏，到插件页安装后重新打开',
 };
 
 /**
@@ -212,12 +208,17 @@ export async function supervise(options, { runtime = process.env.COMPANION_RUNTI
     try { fs.rmSync(stopFile, { force: true }); } catch { /* 下一轮还会看到 */ }
     return true;
   };
-  let said = '', quickExits = 0;
+  let said = '', quickExits = 0, waitRef;
   for (;;) {
     if (stopRequested()) { log('已收到停止请求，停止等待'); return 0; }
     const state = await check(connectionPath, expected);
     if (!state.ok) {
-      if (state.wait !== said) { log(`[等待] ${state.wait}`); said = state.wait; }
+      // 连不上时看看是不是根本没装核心模组：没装的话说“等待世界打开”会误导。等的时候可能有人关了游戏去插件页装，所以每轮都查
+      // 这里只用到没装和版本不对，不和本地构建逐字节比
+      const installed = state.wait === WAIT_TEXT.closed ? coreCheck(connectionPath, { ref: waitRef ??= { ...referenceCore(), jar: '' } }) : {};
+      if (installed.block) throw new Error(installed.block);
+      const wait = installed.missing ? WAIT_TEXT.noCore : state.wait;
+      if (wait !== said) { log(`[等待] ${wait}`); said = wait; }
       await sleep(pollMs);
       continue;
     }
