@@ -9,7 +9,7 @@ import path from 'node:path';
 import crypto from 'node:crypto';
 import { spawn } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
-import { connectionFileOf, gameDirOf, gameType, readGameConfig, writeGameConfig } from './webui-games.mjs';
+import { connectionFileOf, coreJars, gameDirOf, gameType, readGameConfig, writeGameConfig } from './webui-games.mjs';
 import { disabledPlugins } from './webui-plugins.mjs';
 import { memoryDir, runtimeDir } from './paths.mjs';
 
@@ -224,6 +224,8 @@ export function profileConnection(profile) {
   if (!game.ok) return game;
   const conn = inspectConnection(connectionFileOf(profile.gameDir));
   if (conn.ok || conn.code !== 'missing') return conn;
+  // 连接文件是核心模组写的：没装核心时说“去打开世界”会误导（世界可能已经开着）
+  if (!coreJars(profile.gameDir).length) return { ok: false, error: server ? '服务器的 mods 中未找到核心模组：请关闭服务器，到插件页安装后启动一次服务器' : '游戏的 mods 中未找到核心模组：请关闭游戏，到插件页安装后重新打开世界' };
   return { ok: false, error: server ? '服务器尚未启动过：安装核心模组后，请先启动一次服务器' : '尚未打开过世界：请进入游戏打开世界，按 Esc 选择「对局域网开放」' };
 }
 
